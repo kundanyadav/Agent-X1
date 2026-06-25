@@ -1,0 +1,17 @@
+# Agent-X1 Background Scheduled Jobs Configuration
+
+jobs:
+  - name: "sync_backlog"
+    cron: "*/15 * * * *"            # Poll Azure DevOps for assigned work items every 15 minutes
+    task: "tasks.sync_devops_backlog"
+    description: "Scan Kanban board for work items assigned to Agent-X1 and launch execution loop."
+
+  - name: "nightly_test_audit"
+    cron: "0 2 * * *"               # Run at 2:00 AM every night
+    task: "tasks.run_workspace_tests"
+    description: "Execute compiler builds and run test suites on the workspace target branch."
+
+  - name: "memory_consolidation"
+    cron: "0 4 * * *"               # Run at 4:00 AM every night
+    task: "tasks.consolidate_memories"
+    description: "Consolidate episodic task traces into semantic vectors and learned skills."

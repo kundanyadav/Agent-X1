@@ -1,0 +1,64 @@
+# Agent-X1 Harness Configuration File
+
+# Inference Provider Options
+inference:
+  active_provider: "copilot"         # Options: copilot, openai, anthropic, gemini, ollama
+  model: "gpt-4o"
+  model_fallback: "gpt-4o-mini"
+  
+  # Plug and Play BYOK (Bring Your Own Key) Pointers
+  openai:
+    api_key: "${OPENAI_API_KEY}"
+    base_url: "https://api.openai.com/v1"
+  anthropic:
+    api_key: "${ANTHROPIC_API_KEY}"
+    base_url: "https://api.anthropic.com/v1"
+  gemini:
+    api_key: "${GEMINI_API_KEY}"
+  ollama:
+    base_url: "http://localhost:11434/v1"
+
+# Azure DevOps Integration Settings
+ado:
+  organization: "your-organization"
+  project: "your-project"
+  repository_id: "your-repository-id"
+  personal_access_token: "${ADO_PERSONAL_ACCESS_TOKEN}"
+  target_branch: "main"
+  branch_prefix: "feature/task-"
+  
+  # Kanban Board Column to Work Item State Mappings
+  state_mapping:
+    backlog: "To Do"
+    in_progress: "Doing"
+    review_required: "PR Raised"
+    completed: "Closed"
+
+# Local API Server Settings
+api:
+  host: "127.0.0.1"
+  port: 8000
+  api_key: "${AGENT_API_KEY}"        # Local request auth token
+  allowed_origins: ["*"]
+
+# Persistent Storage & Path Configurations
+storage:
+  db_path: "tmp/memory.db"
+  vector_db_path: "tmp/vector_db"
+  audit_log_path: "logs/audit_lineage.jsonl"
+
+# Compliance, Logging & Rotation Settings
+security:
+  encrypt_logs: false                # Set to true to encrypt audit_lineage.jsonl at rest
+  log_rotation_days: 7
+
+# Human-in-the-loop (HITL) Gate Rules
+gating:
+  timeout_hours: 1                   # Pause duration before rolling back branch and setting ADO to Blocked
+  
+  # Operations that bypass semantic memory checks and always require human approval
+  strict_approval_rules:
+    - "install_dependency"
+    - "delete_file"
+    - "database_migration"
+    - "git_force_push"
