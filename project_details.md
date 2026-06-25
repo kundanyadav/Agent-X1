@@ -53,6 +53,7 @@ This document serves as a persistent context store and memory log for Antigravit
 | `src/audit/lineage.py` | Structured audit log parser and pre/post hashing utility |
 | `src/memory/memory.py` | SQLite and Vector DB managers |
 | `src/skills/skills.py` | Skill loader and Creator engine |
+| `.agents/skills/agent-harness-builder/SKILL.md` | Persistent workspace skill for agent-harness construction and refinement |
 
 ---
 
