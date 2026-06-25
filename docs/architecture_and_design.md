@@ -10,43 +10,43 @@ Agent-X1 decouples task planning (the Manager role) from execution modules (the 
 
 ```mermaid
 graph TB
-    subgraph Triggers & Interaction Gateways
-        CLI[Terminal CLI - Command Console]
-        Teams[MS Teams Gateway - Webhook/Bot]
-        API[FastAPI REST API Interface]
-        Scheduler[Scheduled Jobs / Cron Daemon]
+    subgraph "Triggers & Interaction Gateways"
+        CLI["Terminal CLI - Command Console"]
+        Teams["MS Teams Gateway - Webhook/Bot"]
+        API["FastAPI REST API Interface"]
+        Scheduler["Scheduled Jobs / Cron Daemon"]
     end
 
-    subgraph Core Orchestration Manager
-        Orch[Orchestrator Manager]
-        State[State Machine & Task DAG]
+    subgraph "Core Orchestration Manager"
+        Orch["Orchestrator Manager"]
+        State["State Machine & Task DAG"]
     end
 
-    subgraph Specialized Worker Agents
-        CodeWorker[Developer Worker: Code Mutations]
-        TestWorker[Tester Worker: Validation & Compilation]
-        DevOpsWorker[DevOps Worker: Git & ADO Integration]
+    subgraph "Specialized Worker Agents"
+        CodeWorker["Developer Worker: Code Mutations"]
+        TestWorker["Tester Worker: Validation & Compilation"]
+        DevOpsWorker["DevOps Worker: Git & ADO Integration"]
     end
 
-    subgraph Memory, Lineage & Learning
-        Mem[Memory Manager]
-        SQLite[(SQLite DB: Episodic & Audit)]
-        VectorDB[(LanceDB/NumPy: Semantic)]
-        SkillRegistry[Skill Registry / YAML Loader]
-        AuditLog[(Audit Hashing & JSONL Log File)]
+    subgraph "Memory, Lineage & Learning"
+        Mem["Memory Manager"]
+        SQLite[("SQLite DB: Episodic & Audit")]
+        VectorDB[("LanceDB/NumPy: Semantic")]
+        SkillRegistry["Skill Registry / YAML Loader"]
+        AuditLog[("Audit Hashing & JSONL Log File")]
     end
 
-    subgraph Environment & Tooling
-        ToolRunner[Tool Execution Manager]
-        VSCode[VS Code Workspace API]
-        Shell[Bash/Powershell Shell Runner]
-        ADO[Azure DevOps API Client]
+    subgraph "Environment & Tooling"
+        ToolRunner["Tool Execution Manager"]
+        VSCode["VS Code Workspace API"]
+        Shell["Bash/Powershell Shell Runner"]
+        ADO["Azure DevOps API Client"]
     end
 
-    subgraph Inference & LLM Providers
-        InfRouter[Plug-and-Play Inference Router]
-        CopilotProv[Copilot Provider: Token Swapper]
-        BYOKProv[BYOK Provider: OpenAI/Gemini/Ollama]
+    subgraph "Inference & LLM Providers"
+        InfRouter["Plug-and-Play Inference Router"]
+        CopilotProv["Copilot Provider: Token Swapper"]
+        BYOKProv["BYOK Provider: OpenAI/Gemini/Ollama"]
     end
 
     %% Flow lines
