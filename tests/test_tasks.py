@@ -9,6 +9,8 @@ sys.path.insert(0, str(pathlib.Path(__file__).parent.parent))
 from src.jobs.tasks import sync_devops_backlog
 from src.core.orchestrator import OrchestrationEngine
 from src.integrations.ado import AzureDevOpsClient
+from src.memory.memory import MemoryManager
+
 
 class TestScheduledTasks(unittest.TestCase):
 
