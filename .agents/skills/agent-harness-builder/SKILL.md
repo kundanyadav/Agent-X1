@@ -112,6 +112,18 @@ Check the output:
 - Verify that a `Correlation-ID` was generated.
 - Inspect `logs/audit_lineage.jsonl` to ensure trace actions are correctly captured.
 
+### 3.3 Test-Driven Development & Temp Folder Hygiene
+To maintain a clean codebase and avoid file littering:
+1. **Concurrent Testing**: Write unit tests *during* the build phase of every module rather than waiting until the end of the project.
+2. **Project-Local Temp Space**: All temporary files, database files created during tests (e.g., `test_memory.db`), mock files, and intermediate log output files must be written strictly to the `<project_root>/tmp/` directory.
+3. **Standardizing Pathing in Tests**: Configure all test setup hooks to resolve paths relative to the project root's `tmp` folder:
+   ```python
+   project_tmp_dir = pathlib.Path(__file__).parent.parent / "tmp"
+   project_tmp_dir.mkdir(exist_ok=True)
+   ```
+4. **Teardown Cleanup**: Every test case must clean up its specific temporary files in its `tearDown` or fixture teardown phase, leaving the workspace clean after runs.
+5. **Git Ignored**: Ensure that `<project_root>/tmp/` is added to the project's `.gitignore` file so that temporary test artifacts are never tracked.
+
 ---
 
 ## 4. Requirements Gathering & Clarification Checklist
