@@ -1,12 +1,12 @@
-# Agent-X1: Hermes-style Autonomous Agentic Harness for Windows
+# Agent-X1: Hermes-style Autonomous Agentic Harness (Manager-Worker Topology)
 
-This document details the architecture, design, and protocols for **Agent-X1**, an autonomous, self-improving agent harness. The project is designed to run locally on Windows (compatible with macOS/Linux), hook into VS Code workspaces, leverage GitHub Copilot's CLI authentication or other plug-and-play providers (BYOK) for inference, and interact with the user via a terminal CLI, REST API, scheduled jobs, and MS Teams.
+This document details the architecture, design, and protocols for **Agent-X1**, an autonomous, self-improving agent harness. The project uses a **Hierarchical Manager-Worker multi-agent topology** designed to run locally on Windows & Linux (compatible with macOS), hook into VS Code workspaces, leverage GitHub Copilot's CLI authentication or other plug-and-play providers (BYOK) for inference, and interact with the user via a terminal CLI, REST API, scheduled jobs, and MS Teams.
 
 ---
 
 ## 1. System Topology & Architecture
 
-Agent-X1 is composed of decoupled layers to allow modular extension of execution triggers, tools, memory, and LLM providers.
+Agent-X1 decouples task planning (the Manager role) from execution modules (the Worker role). This isolates context and improves stability during long execution cycles.
 
 ```mermaid
 graph TB
@@ -17,9 +17,15 @@ graph TB
         Scheduler[Scheduled Jobs / Cron Daemon]
     end
 
-    subgraph Core Orchestration
-        Orch[Deterministic Orchestrator]
+    subgraph Core Orchestration Manager
+        Orch[Orchestrator Manager]
         State[State Machine & Task DAG]
+    end
+
+    subgraph Specialized Worker Agents
+        CodeWorker[Developer Worker: Code Mutations]
+        TestWorker[Tester Worker: Validation & Compilation]
+        DevOpsWorker[DevOps Worker: Git & ADO Integration]
     end
 
     subgraph Memory, Lineage & Learning
@@ -30,11 +36,11 @@ graph TB
         AuditLog[(Audit Hashing & JSONL Log File)]
     end
 
-    subgraph Action & Environment
+    subgraph Environment & Tooling
         ToolRunner[Tool Execution Manager]
         VSCode[VS Code Workspace API]
-        Shell[WinCMD/PowerShell Runner]
-        ADO[Azure DevOps Integrator]
+        Shell[Bash/Powershell Shell Runner]
+        ADO[Azure DevOps API Client]
     end
 
     subgraph Inference & LLM Providers
@@ -53,16 +59,25 @@ graph TB
     Orch <--> Mem
     Orch <--> SkillRegistry
     Orch <--> InfRouter
-    Orch --> ToolRunner
     
-    Mem --> SQLite
-    Mem --> VectorDB
-    Mem --> AuditLog
+    %% Manager delegates to Workers
+    Orch --> CodeWorker
+    Orch --> TestWorker
+    Orch --> DevOpsWorker
+    
+    %% Workers use tools
+    CodeWorker --> ToolRunner
+    TestWorker --> ToolRunner
+    DevOpsWorker --> ToolRunner
     
     ToolRunner --> VSCode
     ToolRunner --> Shell
     ToolRunner --> ADO
     
+    Mem --> SQLite
+    Mem --> VectorDB
+    Mem --> AuditLog
+
     InfRouter --> CopilotProv
     InfRouter --> BYOKProv
 ```
@@ -316,24 +331,59 @@ When a command or tool fails, the orchestrator applies a classification policy t
 
 ---
 
-## 8. Local Persisted Memory System
+## 8. Local Persisted Memory System (Partitioned & Cross-Referencable)
 
-To "learn and grow over time", Agent-X1 uses a dual-tier memory system.
+To maintain context boundaries while enabling global learning, Agent-X1 divides its memory into distinct spaces for the Orchestrator Manager and each Worker. Agents can write only to their own namespace but possess read permissions to query and cross-reference other agents' memories.
+
+```
+┌────────────────────────────────────────────────────────┐
+│            Partitioned Memory Structure                │
+├────────────────────────────────────────────────────────┤
+│                                                        │
+│  Orchestrator   ──►  [Write/Read] ──► Orchestrator Mem  │
+│  Manager        ◄──  [Read Only]  ──► Code/Test/Git Mem │
+│                                                        │
+│  CodeWorker     ──►  [Write/Read] ──► CodeWorker Mem   │
+│  Subagent       ◄──  [Read Only]  ──► Test/Git/Orch Mem │
+│                                                        │
+│  TestWorker     ──►  [Write/Read] ──► TestWorker Mem   │
+│  Subagent       ◄──  [Read Only]  ──► Code/Git/Orch Mem │
+│                                                        │
+└────────────────────────────────────────────────────────┘
+```
 
 ### 8.1 Episodic Memory (Structured Ledger)
-- **Engine**: SQLite (`memory.db`)
-- **Schema**:
+* **Engine**: SQLite (`memory.db`)
+* **Schemas**:
   - `sessions`: Session ID, Goal, Start Time, End Time, Status.
-  - `actions`: Action ID, Session ID, Timestamp, Tool Called, Arguments, Stderr/Stdout, Status.
-  - `feedback`: Action ID, LLM Evaluation Score (1-5), Failure Notes.
+  - `actions`: Action ID, Session ID, **agent_owner** (orchestrator/codeworker/testworker/devopsworker), Timestamp, Tool Called, Arguments, Stderr/Stdout, Status.
+  - `feedback`: Action ID, **agent_owner**, LLM Evaluation Score (1-5), Failure Notes.
+* **Partition Enforcement**: Queries default to filtering by `agent_owner`. Indexes are configured on `(agent_owner, session_id)` for rapid lookup.
 
 ### 8.2 Semantic Memory (Vector Space)
-- **Engine**: NumPy-based cosine similarity (for lightweight zero-dependency installs on Windows) or LanceDB.
-- **Embeddings**: Generated using a lightweight open-source embedding model running locally (e.g., via `sentence-transformers` running on CPU) or using Copilot's embedding API (if available).
-- **Data Saved**:
-  - Code snippets solved.
-  - Configuration patterns discovered (e.g., "MSBuild requires /p:Configuration=Release").
-  - Troubleshooting recipes.
+* **Engine**: NumPy-based cosine similarity or LanceDB.
+* **Embeddings**: Generated using a lightweight CPU-based model (e.g. `sentence-transformers`) or the Copilot API.
+* **Metadata Schema**:
+  ```json
+  {
+    "vector": [0.012, -0.045, ...],
+    "metadata": {
+      "agent_owner": "testworker",
+      "category": "compilation_fix",
+      "issue": "Missing DLL import during MSBuild execution",
+      "solution": "Configure MSBuild parameter /p:ReferencePath=...",
+      "timestamp": 1813953600
+    }
+  }
+  ```
+
+### 8.3 Cross-Referencing Interface (API)
+The `MemoryManager` in `memory.py` exposes cross-referencing capabilities:
+* `def write_memory(agent_owner: str, data: dict)`: Writes to the agent's partitioned database and vector space.
+* `def query_memory(caller_agent: str, query: str, target_owners: List[str] = None) -> List[dict]`:
+  - If `target_owners` is omitted, defaults to the caller's own partition.
+  - Callers can pass a list of target namespaces (e.g., `target_owners=['codeworker', 'testworker']`) to query and learn from actions completed by sibling worker agents. For instance, the `CodeWorker` can query the `TestWorker`'s log history to see what tests succeeded or failed on a particular module in previous runs.
+
 
 ---
 

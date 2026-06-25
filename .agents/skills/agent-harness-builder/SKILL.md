@@ -88,11 +88,16 @@ When implementing or updating the memory manager (`src/memory/memory.py`):
    - Always use connection context managers: `with sqlite3.connect(db_path) as conn:`.
    - Set `timeout=30.0` to prevent database locks from concurrent API server and background job daemon operations.
    - Enforce database schemas at boot time (e.g. run `CREATE TABLE IF NOT EXISTS` commands on initialization).
-   - Create indexes on lookup fields: `correlation_id` in action tables and `task_id` in feedback tables.
+   - **Enforce Partitioning**: Every schema relating to actions, errors, or learnings must contain an `agent_owner` field (values: `orchestrator`, `codeworker`, `testworker`, `devopsworker`).
+   - Create compound indexes on lookup fields: `(agent_owner, correlation_id)` in action tables and `(agent_owner, task_id)` in feedback tables.
 2. **Semantic Memory (Vector DB)**:
    - For a lightweight Windows/Linux environment, use a NumPy-based cosine similarity matrix or `LanceDB` (which runs in-process). Avoid heavy JVM-based or local service databases (like Qdrant or Milvus) to ease installation.
    - Decouple the embedding generator: wrap the embedding model in a provider interface so we can swap between a local CPU-based sentence-transformer model and external embedding endpoints.
+   - **Tag Vectors**: Store `agent_owner` in vector metadata for lookup queries.
    - Return scores alongside vectors; discard hits below a configurable similarity threshold (e.g., `similarity < 0.75`).
+3. **Cross-Referencing Interface**:
+   - Program the `query_memory` method to accept `target_owners: List[str] = None`. By default, restrict searches to the executing agent's own owner value, but allow explicit list overrides to search other agents' histories.
+   - Limit database write operations strictly to the executing agent's own `agent_owner` string to prevent partition pollution.
 
 ---
 
