@@ -114,3 +114,11 @@ This document details the functional, non-functional, security, and operational 
 * **Test-Driven Development**: Unit and integration tests must be written concurrently with every module under `tests/`.
 * **Temp Folder Hygiene**: All temporary files, mock test databases, run logs, and compiler artifacts generated during development or testing must live strictly in the `<project_root>/tmp/` folder.
 * **Git Cleanliness**: The project's `.gitignore` must block the tracking of `/tmp/` and `/logs/` files.
+
+---
+
+## 10. Future Roadmap (Phase 2 - Context Management via Headroom)
+To optimize long-running agent execution context and lower token expenses:
+* **Context Compression Layer**: Integrate the `Headroom` context compression layer to compress logs, tool outputs, database schemas, and AST-parsed code files by up to 60-95% before submitting prompts to the inference router.
+* **Content-Compressed Retrieval (CCR)**: Retain the full, uncompressed payloads in local caching, allowing the LLM to request retrieval of specific uncompressed sections if it requires high-fidelity analysis to resolve coding tasks.
+* **KV Cache Aligner**: Incorporate a cache aligner to ensure that system instructions, schemas, and historical prefixes remain structurally stabilized, maximizing prompt cache hits at the model provider level to minimize inference latency and costs.

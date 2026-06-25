@@ -75,7 +75,9 @@ This document serves as a persistent context store and memory log for Antigravit
   - Performed capability benchmarking and scoring against Hermes Agent in [hermes_benchmarking.md](file:///Users/kundanyadav/SourceCode/Agent-X1/docs/hermes_benchmarking.md).
   - Created the formal [requirements.md](file:///Users/kundanyadav/SourceCode/Agent-X1/docs/requirements.md) specification document.
   - Integrated **Adaptive Re-planning Gating** with self-maturing classification boundaries in the design documents.
+  - Added a Future Roadmap section to design documents planning for the **Headroom context compression layer** in Phase 2.
 * **Next Step**: Awaiting user approval of the implementation plan. Once approved, initialize `config.yaml` and build the inference client `router.py`.
+
 
 
 

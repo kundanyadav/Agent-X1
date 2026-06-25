@@ -520,3 +520,32 @@ The `ToolRunner` abstracts shell commands via `sys.platform`:
   - Windows: `%APPDATA%`, `%USERPROFILE%`
   - Linux/macOS: `$HOME`, `$XDG_CONFIG_HOME`
 * Standardizes all tool output paths using slash unification (`path.as_posix()`) to prevent escaping syntax issues in LLM JSON configurations.
+
+---
+
+## 12. Future Roadmap: Phase 2 - Headroom Context Compression Layer
+
+In Phase 2, we will integrate `Headroom` as an in-process proxy layer situated between the **Inference Router** and the active LLM endpoints:
+
+```
+┌────────────────────────────────────────────────────────┐
+│             Headroom Integration Schema                │
+├────────────────────────────────────────────────────────┤
+│                                                        │
+│  Orchestrator  ──► [Verbose Prompt] ──► [Headroom]     │
+│                                            │ (Compress)│
+│                                            ▼           │
+│  Copilot / BYOK ◄── [Compressed]    ◄──────┘           │
+│  Inference API                                         │
+└────────────────────────────────────────────────────────┘
+```
+
+### 12.1 Content-Aware Compression Engine
+* **Log Compression**: Verbose compiler output and execution traces are compressed using regex-based noise filters (SmartCrusher), preserving only key entry exceptions and stack traces.
+* **AST Code Crusher**: Active file codes are parsed via an Abstract Syntax Tree (AST) parser to strip out comments and boilerplate class declarations, presenting only class/method signatures and target lines to the prompt.
+
+### 12.2 Content-Compressed Retrieval (CCR) Implementation
+* The original verbose files, schemas, and outputs are cached in a temporary local sqlite store under `tmp/headroom_cache.db`.
+* The LLM prompt is injected with a retrieval function definition. If the compressed context contains a reference token, the LLM can query the router to unpack and fetch the uncompressed data block on-demand.
+* This dramatically improves prompt cash efficiency (KV cache stability) and lowers token billing.
+
