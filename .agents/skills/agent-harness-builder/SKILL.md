@@ -15,14 +15,14 @@ When implementing new features or resolving issues in the harness, follow these 
 
 ```mermaid
 graph TD
-    Goal[Request: New Integration/Feature] --> Plan[0. Planning & Architecture Review]
-    Plan --> UserApprove{User Approved?}
-    UserApprove -- Yes --> Spec[1. Define Schema & Config in config.yaml]
-    UserApprove -- No --> Plan
-    Spec --> CoreDev[2. Implement Module in src/]
-    CoreDev --> AuditDev[3. Register Actions in src/audit/lineage.py]
-    AuditDev --> ToolDev[4. Add Tool Wrapper in src/core/orchestrator.py]
-    ToolDev --> MockTest[5. Run Mock Unit Tests]
+    Goal["Request: New Integration/Feature"] --> Plan["0. Planning & Architecture Review"]
+    Plan --> UserApprove{"User Approved?"}
+    UserApprove -- "Yes" --> Spec["1. Define Schema & Config in config.yaml"]
+    UserApprove -- "No" --> Plan
+    Spec --> CoreDev["2. Implement Module in src/"]
+    CoreDev --> AuditDev["3. Register Actions in src/audit/lineage.py"]
+    AuditDev --> ToolDev["4. Add Tool Wrapper in src/core/orchestrator.py"]
+    ToolDev --> MockTest["5. Run Mock Unit Tests"]
 ```
 
 ### 1.0 Step 0: Planning, Architecture Review, & Design Finalization (MANDATORY)
