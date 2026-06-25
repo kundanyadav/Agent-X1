@@ -381,9 +381,55 @@ To maintain context boundaries while enabling global learning, Agent-X1 divides 
 The `MemoryManager` in `memory.py` exposes cross-referencing capabilities:
 * `def write_memory(agent_owner: str, data: dict)`: Writes to the agent's partitioned database and vector space.
 * `def query_memory(caller_agent: str, query: str, target_owners: List[str] = None) -> List[dict]`:
-  - If `target_owners` is omitted, defaults to the caller's own partition.
   - Callers can pass a list of target namespaces (e.g., `target_owners=['codeworker', 'testworker']`) to query and learn from actions completed by sibling worker agents. For instance, the `CodeWorker` can query the `TestWorker`'s log history to see what tests succeeded or failed on a particular module in previous runs.
 
+### 8.4 Prompt Enrichment & RAG Pipeline
+
+Before the Orchestrator or a Worker Agent submits a prompt to the LLM (Copilot or BYOK), the system runs an automatic prompt enrichment sequence:
+
+```
+Step 1: Get Current Task Description / Error Trace
+                     │
+                     ▼
+Step 2: Query SQLite (Episodic) & Vector DB (Semantic)
+  - Search caller's partition & cross-referenced worker partitions
+                     │
+                     ▼
+Step 3: Filter & Rank Results
+  - Keep top N results with similarity score > 0.75
+                     │
+                     ▼
+Step 4: Format Context Block
+  - Render file diffs, past solution summaries, and rules
+                     │
+                     ▼
+Step 5: Inject into System Prompt
+  - LLM receives context-enriched system instruction
+```
+
+#### Context Formatting Schema
+The retrieved memory nodes are compiled into a markdown block and prepended to the system instructions:
+```markdown
+=== RELEVANT CONTEXT FROM LOCAL PERSISTED MEMORY ===
+[Memory Match #1]
+- Source Agent: TestWorker
+- Category: compilation_fix
+- Issue: MSBuild target missing ReferencePath DLLs
+- Resolution: Configured task arguments to append '/p:ReferencePath=C:\libs'
+- Code/Action Diff:
+  ```diff
+  - subprocess.run(["msbuild", sln_path])
+  + subprocess.run(["msbuild", sln_path, "/p:ReferencePath=C:\libs"])
+  ```
+
+[Memory Match #2]
+- Source Agent: CodeWorker
+- Category: file_edit
+- Issue: File lock error on Windows overwrite
+- Resolution: Wrapped file writing in retry block with random jitter.
+=====================================================
+```
+This context allows the LLM to reuse successful solutions and avoid repeating previous errors within the workspace.
 
 ---
 
