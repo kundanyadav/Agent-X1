@@ -148,3 +148,7 @@ When implementing new requirements or integrations, you MUST ask the user the fo
 * **Isolation Scope**: "Should long-term semantic memory be globally shared across all projects and workspaces, or isolated strictly by folder/repository?"
 * **Embedding Model Choice**: "Do you prefer using a local CPU-based embedding library (such as sentence-transformers, which is completely offline) or calling an external endpoint?"
 * **Context Window Density**: "How many past solved tasks should the orchestrator retrieve and inject into the prompt context for new planning runs?"
+
+### 4.5 Multi-Agent Orchestration Topology
+* **Delegation Hierarchy**: "What sort of multi-agent setup is this? Do you prefer a Hierarchical Manager-Worker topology (where a single orchestrator parses the task and spawns specialized subagents for coding, testing, and git operations), a Peer-to-Peer Collaborative network (where agents pass message payloads sequentially), or a centralized Router network?"
+* **Communication Protocol**: "How should agents communicate with one another (e.g., via direct function parameters, an in-memory message queue, or writing shared metadata files in the workspace)?"
