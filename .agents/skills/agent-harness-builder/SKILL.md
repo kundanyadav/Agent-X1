@@ -98,6 +98,10 @@ When implementing or updating the memory manager (`src/memory/memory.py`):
 3. **Cross-Referencing Interface**:
    - Program the `query_memory` method to accept `target_owners: List[str] = None`. By default, restrict searches to the executing agent's own owner value, but allow explicit list overrides to search other agents' histories.
    - Limit database write operations strictly to the executing agent's own `agent_owner` string to prevent partition pollution.
+4. **RAG Prompt Injection & Formatting**:
+   - Program the context compiler to serialize retrieved memory matches into an easily parsable markdown block (`=== RELEVANT CONTEXT FROM LOCAL PERSISTED MEMORY === ... ===`).
+   - Append details of the source agent, issue description, resolution action, and file diffs/command lines.
+   - Inject this context block directly into the system message context of the prompt pipeline right before execution.
 
 ---
 
