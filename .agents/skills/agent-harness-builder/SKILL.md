@@ -103,6 +103,18 @@ When implementing or updating the memory manager (`src/memory/memory.py`):
    - Append details of the source agent, issue description, resolution action, and file diffs/command lines.
    - Inject this context block directly into the system message context of the prompt pipeline right before execution.
 
+### 2.4 Structured LLM Planning & Dynamic Re-planning
+
+When writing orchestrator planning routines:
+1. **JSON Schema Outputs**: Enforce structured outputs (e.g. JSON matching a Pydantic schema) for the task decomposition step. The LLM must return a clean list of tasks with dependencies, worker assignments, arguments, and verification metrics.
+2. **Re-planning Trigger**: If a worker exhausts its retries, pack the execution logs, error output, and workspace state, then call the LLM to dynamically modify the DAG (add new recovery nodes or skip/adjust failing steps).
+3. **Escalation Rules**: If the LLM indicates a re-planning loop has hit a logical deadlock, immediately set the state to `blocked` and trigger the human gate (CLI prompt or Teams card).
+4. **Adaptive Re-planning Gating**:
+   - Program the orchestrator to classify plan shifts into Minor or Major categories.
+   - Enforce hard-coded Major triggers: dependency installs, core config edits, database migrations, file deletions.
+   - Enforce semantic soft triggers: search local `feedback` logs for similarity with past user-approved/rejected plan changes.
+   - Log the user's gating responses (approved vs. rejected) to iteratively mature the classification threshold.
+
 ---
 
 ## 3. Verification & Testing Playbook

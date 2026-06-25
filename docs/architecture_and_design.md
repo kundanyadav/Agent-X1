@@ -272,18 +272,22 @@ This reads the SQLite and JSONL audit logs to generate an interactive timeline s
 
 ## 7. Deterministic Orchestrator & Task Allocation Engine
 
-To prevent autonomous loop failures, the agent does not operate on a free-form "next-step" loop. It uses a structured **State Machine** with a clear plan-and-verify workflow.
+To prevent autonomous loop failures, the agent does not operate on a free-form "next-step" loop. It uses a structured **State Machine** with a clear plan-and-verify workflow, delegating execution steps to workers based on a Directed Acyclic Graph (DAG).
 
 ```
 [Idle] 
   │
   ▼ (User Goal)
-[Planning & Decomposition] ────► Creates Directed Acyclic Graph (DAG) of Tasks
+[Planning & Decomposition] ────► LLM Parses Goal & Context -> Generates Task DAG
   │
   ▼
-[Task Execution Loop] <────────┐
+[Goal Planning Gate] ──────────► Pauses and requests User Approval (CLI/Teams)
+  │      ├─► Approved ─────────┐
+  │      └─► Rejected ──► [Abort Goal]
+  ▼
+[Task Execution Loop] <────────┘
   │                            │
-  ├──► Execute Step (Tool)     │ (Iterate Tasks)
+  ├──► Execute Step (Worker)   │ (Iterate Tasks)
   │                            │
   ├──► Verify Outcome          │
   │      ├─► Success ──────────┘
@@ -291,7 +295,10 @@ To prevent autonomous loop failures, the agent does not operate on a free-form "
   │            ▼
   │          [Error Handler]
   │            ├─► Auto-Correct (Fix & retry up to 3x)
-  │            └─► Escalate to Human (Pause & notify CLI/Teams)
+  │            └─► Hard Failure ──► LLM Re-planning (Adjust DAG nodes)
+  │                                    │
+  │                                    ├─► Success ──► Resume Loop
+  │                                    └─► Escalation ──► Human Gate
   ▼
 [Goal Completed / Learn Phase]
   │
@@ -299,7 +306,30 @@ To prevent autonomous loop failures, the agent does not operate on a free-form "
 [Dynamic Skill Generation]
 ```
 
-### 7.1 Task Schema (DAG)
+### 7.1 LLM-Based Task Decomposition & Approval Gate
+When a user goal is received, the Orchestrator manager executes a planning query against the active LLM provider:
+1. **Context Formulation**: The manager gathers active project file directories, packages, git status, and relevant RAG context from the semantic memory.
+2. **Decomposition Call**: The manager queries the LLM with a system schema requiring a JSON list of tasks matching a structured format.
+3. **DAG Generation**: The output is validated (e.g. via Pydantic) to construct the internal task graph (`TaskNode` entities with dependencies and worker assignments) and writes the proposal summary to `tasks_plan.md`.
+4. **Mandatory Sign-off Gating**: The Orchestrator transitions to a `paused:awaiting_approval` state, sending notification payloads to the terminal CLI and MS Teams Webhook bot. It halts execution loops and waits.
+5. **Resume on Approval**: If the user submits an approval payload (e.g. clicking "Approve" on the adaptive card or typing `y` in the CLI), the Orchestrator moves to the `running` state and begins worker task delegation. If the user declines, the branch is rolled back and the goal is aborted.
+
+
+### 7.2 Dynamic Re-planning & Error Recovery
+If a worker subagent fails a task node (e.g., CodeWorker writes a fix, but TestWorker verification returns compilation errors) and the local recovery threshold (3 retries) is exhausted, the Orchestrator initiates a **Re-planning Turn**:
+1. **Trace Analysis**: The Orchestrator collects the execution logs, pre/post file hashes, git diff, and compiler stderr outputs.
+2. **Re-plan Call**: The Orchestrator queries the LLM: *"The previous task node failed with this error trace. Re-evaluate workspace state and adjust, delete, or add new task nodes to the DAG to resolve the blocker."*
+3. **DAG Mutation**: The orchestrator evaluates the modified task nodes.
+4. **Adaptive Gating Evaluation**: 
+   - The Orchestrator checks the proposed edits against a list of triggers (dependency installations, file deletions, API edits) and queries the local SQLite `feedback` database using semantic similarity:
+     `def evaluate_gating_threshold(proposed_change: dict) -> bool`
+   - It checks past user-approved and rejected re-plan records.
+   - If the similarity of a past rejected change is high, or if the change meets a hard trigger (like installing a new npm library), it is flagged as **Major** and execution pauses for approval.
+   - If it is flagged as **Minor** (e.g., changing test assertion parameters), the Orchestrator auto-executes the change and writes the result to `audit_lineage.jsonl`.
+   - The user's response to any gated prompt is logged in `feedback` to refine the classification vector for future turns.
+
+
+### 7.3 Task Schema (DAG)
 Tasks are represented as objects with state transitions:
 ```python
 class TaskState(str, Enum):

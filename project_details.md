@@ -53,6 +53,9 @@ This document serves as a persistent context store and memory log for Antigravit
 | `src/audit/lineage.py` | Structured audit log parser and pre/post hashing utility |
 | `src/memory/memory.py` | SQLite and Vector DB managers |
 | `src/skills/skills.py` | Skill loader and Creator engine |
+| `docs/requirements.md` | System requirements specification |
+| `docs/architecture_and_design.md` | Comprehensive system design manual |
+| `docs/hermes_benchmarking.md` | Capability benchmarking & scoring comparison against Hermes Agent |
 | `.agents/skills/agent-harness-builder/SKILL.md` | Persistent workspace skill for agent-harness construction and refinement |
 
 ---
@@ -69,5 +72,11 @@ This document serves as a persistent context store and memory log for Antigravit
   - Implemented **Linux & macOS cross-platform** routing abstractions for shell execution and environment configurations.
   - Fixed all Mermaid diagrams to use double-quotes on labels for GitHub rendering compatibility.
   - Built and updated the workspace developer skill [SKILL.md](file:///Users/kundanyadav/SourceCode/Agent-X1/.agents/skills/agent-harness-builder/SKILL.md) to log TDD policies, temp hygiene directories (`tmp/`), and planning approval requirements.
+  - Performed capability benchmarking and scoring against Hermes Agent in [hermes_benchmarking.md](file:///Users/kundanyadav/SourceCode/Agent-X1/docs/hermes_benchmarking.md).
+  - Created the formal [requirements.md](file:///Users/kundanyadav/SourceCode/Agent-X1/docs/requirements.md) specification document.
+  - Integrated **Adaptive Re-planning Gating** with self-maturing classification boundaries in the design documents.
 * **Next Step**: Awaiting user approval of the implementation plan. Once approved, initialize `config.yaml` and build the inference client `router.py`.
+
+
+
 
