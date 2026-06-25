@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.git/
+.gitignore
+.agents/
+tests/
+docs/
+tmp/
+logs/
+*.md
+.DS_Store

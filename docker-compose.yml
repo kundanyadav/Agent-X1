@@ -1,0 +1,39 @@
+version: "3.8"
+
+services:
+  agent-api:
+    build: .
+    container_name: agent-x1-api
+    ports:
+      - "8000:8000"
+    environment:
+      - GITHUB_COPILOT_OAUTH_TOKEN=${GITHUB_COPILOT_OAUTH_TOKEN}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - AGENT_API_KEY=${AGENT_API_KEY}
+      - ADO_PERSONAL_ACCESS_TOKEN=${ADO_PERSONAL_ACCESS_TOKEN}
+    volumes:
+      - ./config.yaml:/app/config.yaml
+      - ./jobs.yaml:/app/jobs.yaml
+      - ./tmp:/app/tmp
+      - ./logs:/app/logs
+    restart: unless-stopped
+
+  agent-scheduler:
+    build: .
+    container_name: agent-x1-scheduler
+    command: ["python3", "-m", "src.jobs.scheduler"]
+    environment:
+      - GITHUB_COPILOT_OAUTH_TOKEN=${GITHUB_COPILOT_OAUTH_TOKEN}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - AGENT_API_KEY=${AGENT_API_KEY}
+      - ADO_PERSONAL_ACCESS_TOKEN=${ADO_PERSONAL_ACCESS_TOKEN}
+    volumes:
+      - ./config.yaml:/app/config.yaml
+      - ./jobs.yaml:/app/jobs.yaml
+      - ./tmp:/app/tmp
+      - ./logs:/app/logs
+    restart: unless-stopped
