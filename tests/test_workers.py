@@ -132,8 +132,11 @@ class TestWorkers(unittest.TestCase):
         self.assertEqual(res["status"], "success")
         self.assertEqual(res["commit_hash"], "commit_hash_12345")
         
-        # Check call arguments
+        # Check call arguments to verify correlation_id metadata is appended
         self.assertEqual(self.mock_tools.run_shell.call_count, 3)
+        calls = self.mock_tools.run_shell.call_args_list
+        commit_cmd = calls[1][0][0]
+        self.assertIn("Correlation-Id: correlation-123", commit_cmd)
 
     def test_devops_worker_ado_operations(self):
         """Verifies DevOpsWorker routes pull request creation, work item updates, and backlog syncs."""

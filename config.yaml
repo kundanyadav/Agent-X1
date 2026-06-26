@@ -4,7 +4,8 @@
 inference:
   active_provider: "copilot"         # Options: copilot, openai, anthropic, gemini, ollama
   model: "gpt-4o"
-  model_fallback: "gpt-4o-mini"
+  fallback_provider: "openai"
+  fallback_model: "gpt-4o-mini"
   
   # Plug and Play BYOK (Bring Your Own Key) Pointers
   openai:

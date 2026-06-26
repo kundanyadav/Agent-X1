@@ -118,16 +118,20 @@ class InferenceRouter:
 
     def chat_completions(self, messages: List[Dict[str, str]], stream: bool = False, **kwargs) -> Any:
         """Routes chat completions request to active provider, with rate-limit fallback to BYOK."""
-        active_provider = self.config.get("inference", {}).get("active_provider", "copilot")
+        inf_cfg = self.config.get("inference", {})
+        active_provider = inf_cfg.get("active_provider", "copilot")
         
         try:
             return self._execute_chat_completions(active_provider, messages, stream, **kwargs)
         except requests.exceptions.HTTPError as e:
             # Check if we hit rate limits (HTTP 429) or other API exceptions
             if e.response is not None and e.response.status_code == 429:
-                fallback_provider = self.config.get("inference", {}).get("model_fallback")
+                fallback_provider = inf_cfg.get("fallback_provider")
+                fallback_model = inf_cfg.get("fallback_model")
                 if fallback_provider and fallback_provider != active_provider:
                     print(f"Warning: Primary provider '{active_provider}' rate-limited. Falling back to '{fallback_provider}'...", file=sys.stderr)
+                    if fallback_model:
+                        kwargs["model"] = fallback_model
                     return self._execute_chat_completions(fallback_provider, messages, stream, **kwargs)
             raise e
 

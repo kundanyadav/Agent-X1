@@ -1,6 +1,8 @@
 import json
 import uuid
 import time
+import pathlib
+import threading
 from typing import List, Dict, Any, Optional
 from src.inference.router import InferenceRouter
 from src.core.tools import ToolRunner
@@ -28,6 +30,76 @@ class OrchestrationEngine:
 
     def generate_correlation_id(self) -> str:
         return str(uuid.uuid4())
+
+    def write_tasks_plan(
+        self,
+        goal: str,
+        tasks: List[Dict[str, Any]],
+        correlation_id: str,
+        status: str = "Awaiting Approval",
+        plan_path: str = "tasks_plan.md"
+    ) -> None:
+        """Writes a structured markdown task execution plan to the workspace."""
+        tasks_list = ""
+        for t in tasks:
+            deps = f" (depends on: {', '.join(t.get('depends_on', []))})" if t.get("depends_on") else ""
+            args_str = json.dumps(t.get("args", {}))
+            tasks_list += f"- [ ] **{t.get('id', 'task-id')}**: {t.get('name', 'Unnamed task')} (Worker: {t.get('worker', 'unknown')}){deps}\n  - Args: `{args_str}`\n"
+
+        approved_checkbox = "[x]" if "Approved" in status or "Completed" in status else "[ ]"
+
+        content = (
+            f"# Agent-X1 Task Execution Plan\n"
+            f"**Correlation ID**: {correlation_id}\n"
+            f"**Goal**: {goal}\n"
+            f"**Status**: {status}\n\n"
+            f"## Decomposed Tasks\n"
+            f"{tasks_list}\n"
+            f"## Approval Instructions\n"
+            f"To approve this plan, change the checkbox below from `[ ]` to `[x]` and save this file, "
+            f"or approve through your active gateway (CLI / Teams / API).\n\n"
+            f"- {approved_checkbox} I approve this plan and authorize Agent-X1 to execute these tasks.\n"
+        )
+        if self.tools:
+            try:
+                self.tools.write_file(plan_path, content, correlation_id, "orchestrator", "Write initial task plan to workspace")
+            except Exception:
+                # Fallback to direct write if tool is not fully set up or fails
+                p = pathlib.Path(plan_path)
+                p.parent.mkdir(parents=True, exist_ok=True)
+                p.write_text(content, encoding="utf-8")
+        else:
+            p = pathlib.Path(plan_path)
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(content, encoding="utf-8")
+
+    def check_plan_file_approved(self, plan_path: str = "tasks_plan.md") -> bool:
+        """Checks if the user has approved the plan inside the tasks_plan.md file."""
+        p = pathlib.Path(plan_path)
+        if not p.is_file():
+            return False
+        try:
+            content = p.read_text(encoding="utf-8")
+            return "- [x] i approve" in content.lower()
+        except Exception:
+            return False
+
+    def update_tasks_plan_status(self, plan_path: str = "tasks_plan.md", status: str = "Completed") -> None:
+        """Updates the status line in the tasks_plan.md file."""
+        p = pathlib.Path(plan_path)
+        if not p.is_file():
+            return
+        try:
+            content = p.read_text(encoding="utf-8")
+            import re
+            content = re.sub(r"\*\*Status\*\*:\s*.*", f"**Status**: {status}", content)
+            if status in ["Completed", "Approved"]:
+                content = content.replace("- [ ] I approve", "- [x] I approve")
+            elif status in ["Aborted", "Rejected"]:
+                content = content.replace("- [x] I approve", "- [ ] I approve")
+            p.write_text(content, encoding="utf-8")
+        except Exception as e:
+            print(f"[!] Failed to update tasks_plan.md status: {e}")
 
     def decompose_goal(self, goal: str) -> List[Dict[str, Any]]:
         """Invokes LLM to decompose a high-level goal into a JSON task DAG."""
@@ -67,7 +139,8 @@ class OrchestrationEngine:
             if not isinstance(tasks, list):
                 tasks = [tasks]
             return tasks
-        except Exception as e:
+        except (json.JSONDecodeError, TypeError, KeyError) as e:
+            print(f"[!] Warning: Failed to parse LLM goal decomposition JSON: {e}. Falling back to default analysis task.")
             # Fallback task list if LLM output fails to parse
             return [
                 {
@@ -104,12 +177,20 @@ class OrchestrationEngine:
             
         return False
 
-    def execute_loop(self, correlation_id: str, tasks: List[Dict[str, Any]], auto_approve: bool = True) -> str:
+    def execute_loop(
+        self,
+        correlation_id: str,
+        tasks: List[Dict[str, Any]],
+        auto_approve: bool = True,
+        plan_path: str = "tasks_plan.md",
+        approval_event: Optional[threading.Event] = None,
+        active_session: Optional[Dict[str, Any]] = None
+    ) -> str:
         """Runs the state machine loop, executing ready tasks in the DAG and handling failures/re-planning."""
         task_states = {t["id"]: "pending" for t in tasks}
         task_map = {t["id"]: t for t in tasks}
         task_retries = {t["id"]: 0 for t in tasks}
-        max_retries = 2
+        max_retries = 3
 
         while "pending" in task_states.values() or "running" in task_states.values():
             # Find tasks with all dependencies satisfied that are still pending
@@ -126,6 +207,7 @@ class OrchestrationEngine:
                     pass
                 else:
                     # Deadlock or dependency issue
+                    self.update_tasks_plan_status(plan_path, "Deadlocked")
                     return "deadlocked"
 
             for task in ready_tasks:
@@ -144,7 +226,46 @@ class OrchestrationEngine:
                         stderr="Task classified as MAJOR change, requiring human approval",
                         status="blocked"
                     )
-                    return "paused_for_approval"
+                    self.update_tasks_plan_status(plan_path, "Paused for Action Approval")
+                    
+                    import sys
+                    if approval_event:
+                        approval_event.clear()
+                        print(f"[*] Task execution paused. Awaiting approval for task: {task.get('name')}")
+                        if active_session:
+                            active_session["status"] = "paused_for_task_approval"
+                        signaled = approval_event.wait()
+                        
+                        decision = "rejected"
+                        if active_session:
+                            decision = active_session.get("approval_decision")
+                            
+                        if signaled and decision == "approved":
+                            print(f"[*] Task approved. Continuing execution...")
+                            task_states[t_id] = "running"
+                            if active_session:
+                                active_session["status"] = "running"
+                                active_session["approval_decision"] = None
+                        else:
+                            print(f"[!] Task rejected. Aborting execution loop.")
+                            self.update_tasks_plan_status(plan_path, "Aborted")
+                            return "failed"
+                    elif sys.stdin.isatty():
+                        user_input = input(f"Task '{task.get('name')}' is a MAJOR change. Do you approve execution? (y/n): ").strip().lower()
+                        if user_input == "y":
+                            print("[*] Task approved. Continuing...")
+                            task_states[t_id] = "running"
+                        else:
+                            print("[!] Task rejected. Aborting.")
+                            self.update_tasks_plan_status(plan_path, "Aborted")
+                            return "failed"
+                    else:
+                        # Fallback for non-interactive unit test runs
+                        return "paused_for_approval"
+
+                if task_states[t_id] == "blocked":
+                    # If it was blocked and not resumed, skip/continue
+                    continue
 
                 task_states[t_id] = "running"
                 worker_type = task["worker"]
@@ -197,6 +318,7 @@ class OrchestrationEngine:
                         if not new_tasks:
                             # Re-planning did not add new corrective tasks, stop and fail
                             task_states[t_id] = "failed"
+                            self.update_tasks_plan_status(plan_path, "Failed")
                             return "failed"
                         else:
                             # Current task resolved by replacement tasks, mark current as completed
@@ -211,7 +333,9 @@ class OrchestrationEngine:
                 issue="goal execution finished",
                 solution=f"All DAG tasks executed successfully for run {correlation_id}"
             )
+            self.update_tasks_plan_status(plan_path, "Completed")
             return "completed"
+        self.update_tasks_plan_status(plan_path, "Failed")
         return "failed"
 
     def replan_failed_task(
@@ -237,27 +361,28 @@ class OrchestrationEngine:
             f"Current plan: {json.dumps(all_tasks)}"
         )
         
+        resp = self.router.chat_completions(
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ],
+            temperature=0.1
+        )
+        content = resp["choices"][0]["message"]["content"].strip()
+        
+        if content.startswith("```json"):
+            content = content[7:]
+        if content.endswith("```"):
+            content = content[:-3]
+        content = content.strip()
+        
         try:
-            resp = self.router.chat_completions(
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt}
-                ],
-                temperature=0.1
-            )
-            content = resp["choices"][0]["message"]["content"].strip()
-            
-            if content.startswith("```json"):
-                content = content[7:]
-            if content.endswith("```"):
-                content = content[:-3]
-            content = content.strip()
-            
             new_tasks = json.loads(content)
             if not isinstance(new_tasks, list):
                 new_tasks = [new_tasks]
             return new_tasks
-        except Exception:
+        except (json.JSONDecodeError, TypeError, KeyError) as e:
+            print(f"[!] Warning: Failed to parse LLM replan JSON: {e}. Falling back to default recovery task.")
             # Fallback recovery task
             return [
                 {

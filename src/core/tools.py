@@ -108,6 +108,15 @@ class ToolRunner:
         if self.lineage_logger:
             post_hash = self.lineage_logger.compute_file_hash(str(p))
             
+            import difflib
+            diff_lines = list(difflib.unified_diff(
+                [],
+                content.splitlines(keepends=True),
+                fromfile="/dev/null",
+                tofile=str(p)
+            ))
+            diff_text = "".join(diff_lines)
+            
             self.lineage_logger.log_action(
                 correlation_id=correlation_id,
                 action="write_file",
@@ -115,7 +124,8 @@ class ToolRunner:
                 justification=justification,
                 file_path=str(p),
                 pre_hash=pre_hash,
-                post_hash=post_hash
+                post_hash=post_hash,
+                details={"diff": diff_text}
             )
 
         if self.memory_manager:
@@ -159,6 +169,15 @@ class ToolRunner:
         if self.lineage_logger:
             post_hash = self.lineage_logger.compute_file_hash(str(p))
             
+            import difflib
+            diff_lines = list(difflib.unified_diff(
+                file_content.splitlines(keepends=True),
+                patched_content.splitlines(keepends=True),
+                fromfile=f"a/{path}",
+                tofile=f"b/{path}"
+            ))
+            diff_text = "".join(diff_lines)
+            
             self.lineage_logger.log_action(
                 correlation_id=correlation_id,
                 action="patch_file",
@@ -167,7 +186,11 @@ class ToolRunner:
                 file_path=str(p),
                 pre_hash=pre_hash,
                 post_hash=post_hash,
-                details={"search_len": len(search), "replace_len": len(replace)}
+                details={
+                    "search_len": len(search),
+                    "replace_len": len(replace),
+                    "diff": diff_text
+                }
             )
 
         if self.memory_manager:
@@ -194,13 +217,27 @@ class ToolRunner:
             raise FileNotFoundError(f"Cannot delete non-existent file: {path}")
 
         pre_hash = None
+        file_content = ""
         if self.lineage_logger:
             pre_hash = self.lineage_logger.compute_file_hash(str(p))
+            try:
+                file_content = p.read_text(encoding="utf-8")
+            except Exception:
+                pass
 
         # Delete file
         p.unlink()
 
         if self.lineage_logger:
+            import difflib
+            diff_lines = list(difflib.unified_diff(
+                file_content.splitlines(keepends=True),
+                [],
+                fromfile=str(p),
+                tofile="/dev/null"
+            ))
+            diff_text = "".join(diff_lines)
+            
             self.lineage_logger.log_action(
                 correlation_id=correlation_id,
                 action="delete_file",
@@ -208,7 +245,8 @@ class ToolRunner:
                 justification=justification,
                 file_path=str(p),
                 pre_hash=pre_hash,
-                post_hash=None
+                post_hash=None,
+                details={"diff": diff_text}
             )
 
         if self.memory_manager:

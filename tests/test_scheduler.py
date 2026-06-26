@@ -85,5 +85,52 @@ class TestJobScheduler(unittest.TestCase):
         time.sleep(0.05)
         self.scheduler.trigger_job.assert_not_called()
 
+    @patch("src.jobs.tasks.consolidate_memories")
+    def test_trigger_job_dynamic_dispatch(self, mock_consolidate):
+        """Verifies that trigger_job dynamically imports and invokes the task function."""
+        job = {
+            "name": "memory_consolidation",
+            "cron": "0 4 * * *",
+            "task": "tasks.consolidate_memories"
+        }
+        self.scheduler.trigger_job(job)
+        mock_consolidate.assert_called_once_with(config_path="config.yaml")
+
+    @patch("src.jobs.scheduler.JobScheduler.load_jobs")
+    @patch("src.jobs.tasks.consolidate_memories")
+    def test_cron_tick_triggers_actual_callable_and_logs(self, mock_consolidate, mock_load):
+        """Verifies that a matching cron tick triggers the actual task function and logs the start."""
+        mock_load.return_value = [
+            {
+                "name": "memory_consolidation",
+                "cron": "*/10 * * * *",
+                "task": "tasks.consolidate_memories"
+            }
+        ]
+        
+        # Match tick (12:20 is divisible by 10)
+        dt_run = datetime.datetime(2026, 6, 25, 12, 20)
+        
+        # Capture stdout to verify logging
+        import io
+        import sys
+        captured_output = io.StringIO()
+        sys.stdout = captured_output
+        try:
+            self.scheduler.run_tick(dt_run)
+            
+            # Wait a small fraction for the background thread to run
+            import time
+            time.sleep(0.05)
+        finally:
+            sys.stdout = sys.__stdout__
+            
+        # Verify the function was called
+        mock_consolidate.assert_called_once_with(config_path="config.yaml")
+        
+        # Verify the console output contains the log message
+        log_content = captured_output.getvalue()
+        self.assertIn("Starting scheduled job: memory_consolidation (tasks.consolidate_memories)", log_content)
+
 if __name__ == "__main__":
     unittest.main()

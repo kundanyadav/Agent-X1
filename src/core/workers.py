@@ -178,7 +178,9 @@ class DevOpsWorker(BaseWorker):
                 if add_res["exit_code"] != 0:
                     raise RuntimeError(f"Git add failed: {add_res['stderr']}")
                     
-                commit_res = self.tools.run_shell(f'git commit -m "{message}"', correlation_id, self.agent_owner, justification)
+                # Append correlation_id as Git commit metadata trailer
+                commit_msg = f"{message}\n\nCorrelation-Id: {correlation_id}"
+                commit_res = self.tools.run_shell(f'git commit -m "{commit_msg}"', correlation_id, self.agent_owner, justification)
                 if commit_res["exit_code"] != 0:
                     raise RuntimeError(f"Git commit failed: {commit_res['stderr']}")
                     

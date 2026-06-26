@@ -80,9 +80,21 @@ class JobScheduler:
         task = job["task"]
         print(f"[{datetime.datetime.now().isoformat()}] Starting scheduled job: {name} ({task})")
         
-        # In a real environment, this imports task and runs it.
-        # For mock verification, we print and write a trace action if memory manager is loaded.
-        pass
+        import importlib
+        try:
+            parts = task.rsplit(".", 1)
+            if len(parts) == 2:
+                module_name, func_name = parts
+                if not module_name.startswith("src."):
+                    module_name = f"src.jobs.{module_name}"
+                
+                module = importlib.import_module(module_name)
+                func = getattr(module, func_name)
+                func(config_path=self.config_path)
+            else:
+                print(f"[!] Invalid task format in job config: {task}")
+        except Exception as e:
+            print(f"[!] Error executing scheduled job '{name}': {e}")
 
     def run_tick(self, dt: datetime.datetime):
         """Runs a single scheduler tick checking all jobs against the current minute."""

@@ -192,5 +192,103 @@ class TestOrchestrationEngine(unittest.TestCase):
         # 1 run of t-1, 1 run of t-corrective
         self.assertEqual(mock_code_run.call_count, 2)
 
+    def test_write_and_check_tasks_plan(self):
+        """Verifies tasks_plan.md generation, approval check, and status update."""
+        tmp_dir = pathlib.Path(__file__).parent.parent / "tmp"
+        tmp_dir.mkdir(exist_ok=True)
+        plan_path = str(tmp_dir / "test_tasks_plan.md")
+        
+        # Instantiate test engine with tools=None to run direct file fallback path
+        test_engine = OrchestrationEngine(
+            router=self.mock_router,
+            tools=None,
+            memory=self.mock_memory
+        )
+        
+        tasks = [
+            {"id": "t-1", "name": "Task One", "depends_on": [], "worker": "codeworker", "args": {"a": 1}}
+        ]
+        
+        # 1. Test write
+        test_engine.write_tasks_plan(
+            goal="Test goal",
+            tasks=tasks,
+            correlation_id="uuid-test-123",
+            status="Awaiting Approval",
+            plan_path=plan_path
+        )
+        
+        p = pathlib.Path(plan_path)
+        self.assertTrue(p.is_file())
+        
+        content = p.read_text(encoding="utf-8")
+        self.assertIn("uuid-test-123", content)
+        self.assertIn("Awaiting Approval", content)
+        self.assertIn("t-1", content)
+        
+        # 2. Test check approval (unapproved initially)
+        self.assertFalse(test_engine.check_plan_file_approved(plan_path))
+        
+        # Write approved status
+        p.write_text(content.replace("- [ ] I approve", "- [x] I approve"), encoding="utf-8")
+        self.assertTrue(test_engine.check_plan_file_approved(plan_path))
+        
+        # 3. Test update status
+        test_engine.update_tasks_plan_status(plan_path, "Completed")
+        updated_content = p.read_text(encoding="utf-8")
+        self.assertIn("Status**: Completed", updated_content)
+        self.assertIn("- [x] I approve", updated_content)
+        
+        # Cleanup
+        if p.is_file():
+            p.unlink()
+
+    @patch("src.core.workers.CodeWorker.execute_task")
+    def test_execute_loop_updates_tasks_plan_status(self, mock_code_run):
+        """Verifies execute_loop updates status in the tasks plan file."""
+        tmp_dir = pathlib.Path(__file__).parent.parent / "tmp"
+        tmp_dir.mkdir(exist_ok=True)
+        plan_path = str(tmp_dir / "test_exec_tasks_plan.md")
+        
+        # Instantiate test engine with tools=None to run direct file fallback path
+        test_engine = OrchestrationEngine(
+            router=self.mock_router,
+            tools=None,
+            memory=self.mock_memory
+        )
+        
+        # Write initial plan
+        tasks = [{"id": "t-1", "name": "Task 1", "depends_on": [], "worker": "codeworker", "args": {}}]
+        test_engine.write_tasks_plan("Goal", tasks, "cid", "Approved", plan_path)
+        
+        mock_code_run.return_value = {"status": "success"}
+        
+        status = test_engine.execute_loop("cid", tasks, auto_approve=True, plan_path=plan_path)
+        self.assertEqual(status, "completed")
+        
+        # Check that plan file status is updated to Completed
+        content = pathlib.Path(plan_path).read_text(encoding="utf-8")
+        self.assertIn("Status**: Completed", content)
+        
+        # Cleanup
+        if pathlib.Path(plan_path).exists():
+            pathlib.Path(plan_path).unlink()
+
+    def test_replan_failed_task_propagates_provider_exception(self):
+        """Verifies that replan_failed_task lets LLM provider and connection errors propagate."""
+        self.mock_router.chat_completions.side_effect = RuntimeError("Connection timed out to Copilot API")
+        
+        failed_task = {"id": "t-2", "name": "Run tests", "worker": "testworker", "args": {}}
+        all_tasks = [failed_task]
+        
+        with self.assertRaises(RuntimeError) as context:
+            self.engine.repl_failed_task = self.engine.replan_failed_task(
+                correlation_id="cid-123",
+                failed_task=failed_task,
+                error_msg="ImportError: module not found",
+                all_tasks=all_tasks
+            )
+        self.assertIn("Connection timed out", str(context.exception))
+
 if __name__ == "__main__":
     unittest.main()

@@ -85,6 +85,8 @@ class TestToolRunner(unittest.TestCase):
         self.assertEqual(logs[0]["action"], "write_file")
         self.assertIsNone(logs[0]["pre_hash"])
         self.assertIsNotNone(logs[0]["post_hash"])
+        self.assertIn("diff", logs[0]["details"])
+        self.assertIn("+Line 1: Initial text", logs[0]["details"]["diff"])
         
         # 2. Patch file
         self.runner.patch_file(
@@ -106,6 +108,9 @@ class TestToolRunner(unittest.TestCase):
         self.assertIsNotNone(logs[1]["pre_hash"])
         self.assertIsNotNone(logs[1]["post_hash"])
         self.assertNotEqual(logs[1]["pre_hash"], logs[1]["post_hash"])
+        self.assertIn("diff", logs[1]["details"])
+        self.assertIn("-Line 2: Target text", logs[1]["details"]["diff"])
+        self.assertIn("+Line 2: Patched text", logs[1]["details"]["diff"])
         
         # 3. Delete file
         self.runner.delete_file(
@@ -123,6 +128,8 @@ class TestToolRunner(unittest.TestCase):
         self.assertEqual(logs[2]["action"], "delete_file")
         self.assertIsNotNone(logs[2]["pre_hash"])
         self.assertIsNone(logs[2]["post_hash"])
+        self.assertIn("diff", logs[2]["details"])
+        self.assertIn("-Line 1: Initial text", logs[2]["details"]["diff"])
 
     def test_list_dir(self):
         """Verifies listing of a directory."""

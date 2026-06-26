@@ -22,7 +22,8 @@ class TestInferenceRouter(unittest.TestCase):
 inference:
   active_provider: "openai"
   model: "gpt-4"
-  model_fallback: "copilot"
+  fallback_provider: "copilot"
+  fallback_model: "gpt-4-mini"
   openai:
     api_key: "${MOCK_OPENAI_KEY}"
     base_url: "https://api.openai.com/v1"
@@ -86,6 +87,36 @@ inference:
             session_token = router._refresh_copilot_session_token()
             self.assertEqual(session_token, "ghu_session_jwt_xxx")
             self.assertEqual(router.copilot_token_cache, "ghu_session_jwt_xxx")
+
+    @patch("requests.post")
+    def test_chat_completions_fallback_on_429(self, mock_post):
+        """Verifies that 429 rate limit errors trigger fallback to the secondary provider."""
+        import requests
+        # 1. First post (active provider: openai) raises HTTPError with 429 status code
+        mock_resp_429 = MagicMock()
+        mock_resp_429.status_code = 429
+        mock_resp_429.text = "Too many requests"
+        error_429 = requests.exceptions.HTTPError("Rate limited", response=mock_resp_429)
+        
+        # 2. Second post (fallback: copilot) succeeds
+        mock_resp_success = MagicMock()
+        mock_resp_success.status_code = 200
+        mock_resp_success.json.return_value = {
+            "choices": [{"message": {"content": "Fallback success!"}}]
+        }
+        
+        # Configure side effect: raise error on first call, return success on second
+        mock_post.side_effect = [error_429, mock_resp_success]
+        
+        router = InferenceRouter(config_path=str(self.mock_config_path))
+        
+        # Mock Copilot token handshake to avoid filesystem accesses
+        with patch.object(router, "_refresh_copilot_session_token", return_value="mock_jwt"):
+            res = router.chat_completions(messages=[{"role": "user", "content": "hi"}])
+            self.assertEqual(res["choices"][0]["message"]["content"], "Fallback success!")
+            
+        # Verify that mock_post was called twice
+        self.assertEqual(mock_post.call_count, 2)
 
 if __name__ == "__main__":
     unittest.main()

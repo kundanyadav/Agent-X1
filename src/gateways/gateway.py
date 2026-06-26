@@ -61,6 +61,23 @@ class CliGateway:
         if dry_run:
             print("[*] Dry run completed successfully.")
             return "completed"
+
+        # Goal Planning Gate
+        if auto_approve:
+            engine.write_tasks_plan(goal, tasks, correlation_id, status="Approved")
+        else:
+            engine.write_tasks_plan(goal, tasks, correlation_id, status="Awaiting Approval")
+            print(f"[*] Goal Planning Gate: Task execution plan written to tasks_plan.md.")
+            print(f"[*] You can approve by checking the box in the file and saving it, or via console.")
+            
+            user_input = input("Do you approve the execution plan? (y/n): ").strip().lower()
+            if user_input == "y" or engine.check_plan_file_approved():
+                print("[*] Plan approved. Resuming execution...")
+                engine.update_tasks_plan_status(status="Approved")
+            else:
+                print("[!] Plan rejected. Aborting execution.")
+                engine.update_tasks_plan_status(status="Aborted")
+                return "aborted"
             
         print("[*] Starting execution loop...")
         status = engine.execute_loop(correlation_id, tasks, auto_approve=auto_approve)

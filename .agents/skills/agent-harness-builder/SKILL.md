@@ -115,6 +115,29 @@ When writing orchestrator planning routines:
    - Enforce semantic soft triggers: search local `feedback` logs for similarity with past user-approved/rejected plan changes.
    - Log the user's gating responses (approved vs. rejected) to iteratively mature the classification threshold.
 
+### 2.5 Mandatory Goal-Planning Gate
+1. **Plan Generation**: Write a structured `tasks_plan.md` file to the workspace before execution containing the goals, Correlation-ID, decomposed tasks, worker assignments, and dependencies.
+2. **Approval Check**: If `auto_approve_planning` is disabled, block execution until the user sets the `- [x] I approve this plan` checkbox (case-insensitive check) in `tasks_plan.md` or calls `POST /v1/tasks/{id}/approve`.
+3. **Plan State Updates**: Update the status line in `tasks_plan.md` dynamically (e.g. Completed, Failed, Aborted, Deadlocked, Approved) depending on run outcomes.
+
+### 2.6 Task-Level Gating & Blocked Execution (Major Changes)
+1. **Classification of Major Changes**: Major changes include dependency installations, force git pushes, file deletions, and database migrations.
+2. **Execution Blocking**: If a Major change task is hit and `auto_approve_tasks` is disabled, transition the session status to `"paused_for_task_approval"`, clear the sync event, and block using thread synchronization.
+3. **Resumption**: Resume execution only when the approve API (`POST /v1/tasks/{id}/approve` with `approved = true`) or TTY input signals approval. Abort the loop if rejected.
+
+### 2.7 Dynamic Queue Position Calculation
+1. **Never Hardcode Positions**: Do not return static queue positions upon task queries.
+2. **Mutex-Protected Inspection**: To retrieve the live queue position, query the queue list thread-safely under a mutex lock (`with execution_queue.mutex:`), dynamically locate the task's index in the queue, and return it (or `0` if already active/decomposing/running).
+
+### 2.8 Line-by-Line Unified Diff Auditing
+1. **Mutation Lineage**: Enterprise compliance audits require knowing exactly *what* was modified. Always log unified diffs alongside file hash changes.
+2. **Difflib Integration**: When performing `write_file`, `patch_file`, or `delete_file` operations, use `difflib.unified_diff` to compute line-by-line patches.
+3. **SIEM Payload**: Store the diff string in the `"diff"` key inside the lineage audit record's `details` metadata.
+
+### 2.9 Correlation-ID Commit Linkage
+1. **Git Metadata Traceability**: Ensure that the transaction `Correlation-ID` is propagated into the remote Git repo metadata.
+2. **Commit Trailer**: Append the correlation ID to the Git commit message body using a standard git trailer (`Correlation-Id: <uuid>`).
+
 ---
 
 ## 3. Verification & Testing Playbook
@@ -144,6 +167,14 @@ To maintain a clean codebase and avoid file littering:
    ```
 4. **Teardown Cleanup**: Every test case must clean up its specific temporary files in its `tearDown` or fixture teardown phase, leaving the workspace clean after runs.
 5. **Git Ignored**: Ensure that `<project_root>/tmp/` is added to the project's `.gitignore` file so that temporary test artifacts are never tracked.
+
+### 3.4 No Stub / Dummy Code Principle
+1. **Full Implementation Mandatory**: Do not write dummy placeholders, stub files, mock classes, or empty `pass` blocks in production source folders (`src/`). All codebase modules, integration tasks, and background job loops must be fully coded and functional.
+2. **No Placeholder Comments**: Avoid leaving `# TODO` or `# Consolidation logic goes here` comments without active, working code.
+
+### 3.5 Mandatory Feature Test Coverage
+1. **Test for Each Feature**: For every new, updated, or refactored capability added to the codebase (such as scheduling functions, git metadata updates, API endpoints, or database mappings), write a dedicated unit/integration test case under the `tests/` directory.
+2. **Behavioral Assertions**: Assert that the correct inputs are parsed, stdout/stderr logging outputs are generated, internal state transitions occur, and that mock libraries are called with the exact parameters expected.
 
 ---
 
