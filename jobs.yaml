@@ -1,17 +1,32 @@
-# Agent-X1 Background Scheduled Jobs Configuration
-
 jobs:
-  - name: "sync_backlog"
-    cron: "*/15 * * * *"            # Poll Azure DevOps for assigned work items every 15 minutes
-    task: "tasks.sync_devops_backlog"
-    description: "Scan Kanban board for work items assigned to Agent-X1 and launch execution loop."
-
-  - name: "nightly_test_audit"
-    cron: "0 2 * * *"               # Run at 2:00 AM every night
-    task: "tasks.run_workspace_tests"
-    description: "Execute compiler builds and run test suites on the workspace target branch."
-
-  - name: "memory_consolidation"
-    cron: "0 4 * * *"               # Run at 4:00 AM every night
-    task: "tasks.consolidate_memories"
-    description: "Consolidate episodic task traces into semantic vectors and learned skills."
+- cron: '*/15 * * * *'
+  description: Scan Kanban board for work items assigned to Agent-X1 and launch execution
+    loop.
+  name: sync_backlog
+  task: tasks.sync_devops_backlog
+- cron: 0 2 * * *
+  description: Execute compiler builds and run test suites on the workspace target
+    branch.
+  name: nightly_test_audit
+  task: tasks.run_workspace_tests
+- cron: 0 4 * * *
+  description: Consolidate episodic task traces into semantic vectors and learned
+    skills.
+  name: memory_consolidation
+  task: tasks.consolidate_memories
+- cron: 0 2 * * *
+  description: 'Scheduled execution of goal: Old Goal'
+  name: scheduled_goal_mock-id-
+  task: tasks.run_scheduled_goal
+- cron: 0 2 * * *
+  description: 'Scheduled execution of goal: Old Goal'
+  name: scheduled_goal_mock-id-
+  task: tasks.run_scheduled_goal
+- cron: 0 2 * * *
+  description: 'Scheduled execution of goal: Old Goal'
+  name: scheduled_goal_mock-id-
+  task: tasks.run_scheduled_goal
+- cron: 0 2 * * *
+  description: 'Scheduled execution of goal: Old Goal'
+  name: scheduled_goal_mock-id-
+  task: tasks.run_scheduled_goal

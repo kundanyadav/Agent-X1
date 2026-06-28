@@ -393,3 +393,181 @@ class OrchestrationEngine:
                     "args": {"task_description": f"Investigate test or shell command failures: {error_msg}"}
                 }
             ]
+
+    def generate_planning_proposal(self, goal: str, history: List[Dict[str, str]]) -> str:
+        """Generates or refines a proposed implementation plan and DAG tasks based on conversation history."""
+        if not history:
+            system_prompt = (
+                "You are the Manager Orchestrator of Agent-X1.\n"
+                "Your job is to work with the user to design an Implementation Plan and define a Proposed DAG of Tasks to achieve their goal.\n"
+                "You should respond with a clear, detailed Markdown document containing:\n"
+                "1. **Implementation Plan**: High-level design, architectural decisions, and files to modify/create.\n"
+                "2. **Proposed DAG Tasks**: A list of tasks showing:\n"
+                "   - Task ID (e.g. task-1, task-2)\n"
+                "   - Task Name\n"
+                "   - Worker (codeworker, testworker, or devopsworker)\n"
+                "   - Description of what the worker will do\n"
+                "   - Dependencies (which task IDs must complete first)\n\n"
+                "Keep the proposal clean, structured, and easy to read.\n"
+                "If the user provides feedback, adjust the design and the tasks accordingly."
+            )
+            history.append({"role": "system", "content": system_prompt})
+            history.append({"role": "user", "content": f"Please propose an implementation plan and DAG tasks for the goal: {goal}"})
+            
+        resp = self.router.chat_completions(messages=history, temperature=0.2)
+        return resp["choices"][0]["message"]["content"].strip()
+
+    def decompose_plan_into_tasks(self, finalized_plan: str) -> List[Dict[str, Any]]:
+        """Takes the finalized implementation plan markdown and decomposes it into a structured JSON task DAG."""
+        system_prompt = (
+            "You are the Manager Orchestrator of Agent-X1.\n"
+            "Your task is to take the finalized Implementation Plan and Proposed Tasks, and translate them into a structured JSON list of task dictionaries.\n"
+            "Each task MUST have the following keys:\n"
+            "  - \"id\": unique string identifier (e.g. \"task-1\")\n"
+            "  - \"name\": short descriptive name\n"
+            "  - \"depends_on\": list of IDs of tasks that must finish before this task starts\n"
+            "  - \"worker\": one of: \"codeworker\", \"testworker\", \"devopsworker\"\n"
+            "  - \"args\": dictionary of arguments to pass to that worker\n"
+            "    - For codeworker: {\"task_description\": \"...\"}\n"
+            "    - For testworker: {\"test_command\": \"...\"}\n"
+            "    - For devopsworker: {\"operation\": \"git_branch|git_commit|git_push|ado_sync_backlog|ado_update_state|ado_create_pr\", \"params\": {...}}\n"
+            "Ensure the dependency DAG is acyclic. Do NOT output extra text or markdown wrapping, output raw JSON only."
+        )
+        
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": f"Finalized Plan:\n{finalized_plan}"}
+        ]
+        
+        resp = self.router.chat_completions(messages=messages, temperature=0.1)
+        content = resp["choices"][0]["message"]["content"].strip()
+        
+        if content.startswith("```json"):
+            content = content[7:]
+        if content.endswith("```"):
+            content = content[:-3]
+        content = content.strip()
+        
+        try:
+            tasks = json.loads(content)
+            if not isinstance(tasks, list):
+                tasks = [tasks]
+            return tasks
+        except (json.JSONDecodeError, TypeError, KeyError) as e:
+            print(f"[!] Warning: Failed to parse LLM plan decomposition JSON: {e}. Falling back to default task list.")
+            return [
+                {
+                    "id": "task-fallback-plan-1",
+                    "name": "Execute finalized plan",
+                    "depends_on": [],
+                    "worker": "codeworker",
+                    "args": {"task_description": f"Implement the finalized plan: {finalized_plan[:200]}..."}
+                }
+            ]
+
+    def learn_user_fact_if_needed(self, user_input: str) -> bool:
+        """Scans user input for key trigger phrases and logs useful insights/preferences to semantic memory."""
+        triggers = ["important", "interesting", "keep in mind", "let's keep in mind", "useful", "remember", "make sure to", "note that"]
+        user_input_lower = user_input.lower()
+        if any(trigger in user_input_lower for trigger in triggers):
+            try:
+                self.memory.learn_fact(
+                    agent_owner="orchestrator",
+                    category="user_preference",
+                    issue="user preference during planning",
+                    solution=user_input
+                )
+                print("[+] Saved important context to semantic memory.")
+                return True
+            except Exception as e:
+                print(f"[!] Warning: Failed to write user fact to memory: {e}")
+        return False
+
+    def answer_planning_qa(self, question: str) -> str:
+        """Runs a secondary Q/A completions query using relevant facts from semantic memory."""
+        # 1. Retrieve related facts from semantic memory
+        relevant_memories = []
+        try:
+            relevant_memories = self.memory.query_semantic_memory("orchestrator", question, similarity_threshold=0.7)
+        except Exception as e:
+            print(f"[!] Warning: Failed to query semantic memory: {e}")
+            
+        memory_context = ""
+        if relevant_memories:
+            memory_context = "\nRelevant Context from Memory:\n"
+            for mem in relevant_memories:
+                memory_context += f"- Category: {mem.get('category')}, Fact: {mem.get('solution')}\n"
+                
+        # 2. Call LLM to generate the answer
+        system_prompt = (
+            "You are the Manager Orchestrator of Agent-X1.\n"
+            "The user is asking a direct question during the planning phase.\n"
+            "Provide a concise, helpful, and technically accurate answer based on the question and any provided context.\n"
+            "Do NOT output plan code, just directly answer the question."
+        )
+        
+        user_prompt = f"Question: {question}\n{memory_context}"
+        
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt}
+        ]
+        
+        try:
+            resp = self.router.chat_completions(messages=messages, temperature=0.2)
+            answer = resp["choices"][0]["message"]["content"].strip()
+        except Exception as e:
+            answer = f"Failed to get answer from LLM: {e}"
+            
+        # 3. Save exchange to semantic memory
+        try:
+            self.memory.learn_fact(
+                agent_owner="orchestrator",
+                category="user_qa",
+                issue=question,
+                solution=answer
+            )
+            print("[+] Saved Q&A exchange to semantic memory.")
+        except Exception as e:
+            print(f"[!] Warning: Failed to log Q&A to memory: {e}")
+            
+        return answer
+
+    def compact_planning_history(self, goal: str, history: List[Dict[str, str]]) -> List[Dict[str, str]]:
+        """Summarizes and distills the back-and-forth planning history to lower token consumption."""
+        compaction_prompt = (
+            "You are the Manager Orchestrator of Agent-X1.\n"
+            "Your job is to review the back-and-forth planning conversation so far, and consolidate it into a single, concise summary of agreed-upon design requirements, decisions, and constraints for the goal: \"{goal}\".\n"
+            "Ensure that all key feedback, technical requirements, and decisions made by the user are preserved in this summary.\n"
+            "Do NOT output plan code, just output the concise summary of the design decisions."
+        ).format(goal=goal)
+        
+        messages = history + [{"role": "user", "content": compaction_prompt}]
+        try:
+            resp = self.router.chat_completions(messages=messages, temperature=0.1)
+            distilled_summary = resp["choices"][0]["message"]["content"].strip()
+        except Exception as e:
+            print(f"[!] Warning: Failed to compact history using LLM: {e}")
+            distilled_summary = "User and agent are currently refining the plan. Please output a plan matching the user's latest goals."
+            
+        system_prompt = (
+            "You are the Manager Orchestrator of Agent-X1.\n"
+            "Your job is to work with the user to design an Implementation Plan and define a Proposed DAG of Tasks to achieve their goal.\n"
+            "You should respond with a clear, detailed Markdown document containing:\n"
+            "1. **Implementation Plan**: High-level design, architectural decisions, and files to modify/create.\n"
+            "2. **Proposed DAG Tasks**: A list of tasks showing:\n"
+            "   - Task ID (e.g. task-1, task-2)\n"
+            "   - Task Name\n"
+            "   - Worker (codeworker, testworker, or devopsworker)\n"
+            "   - Description of what the worker will do\n"
+            "   - Dependencies (which task IDs must complete first)\n\n"
+            "Keep the proposal clean, structured, and easy to read.\n"
+            "If the user provides feedback, adjust the design and the tasks accordingly."
+        )
+        
+        new_history = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": f"Please propose an implementation plan and DAG tasks for the goal: {goal}"},
+            {"role": "assistant", "content": f"Summary of current design agreements and constraints:\n{distilled_summary}"}
+        ]
+        return new_history

@@ -95,11 +95,14 @@ inference:
   active_provider: "copilot" # Options: copilot, openai, anthropic, gemini, ollama
   model: "gpt-4o"
   openai:
-    api_key: "ENV_VAR_OR_KEY"
+    api_key: "${OPENAI_API_KEY}"
     base_url: "https://api.openai.com/v1"
   ollama:
     base_url: "http://localhost:11434/v1"
 ```
+
+#### 2.1.1 Environment Variable Interpolation (.env)
+To safeguard API keys, tokens, and personal access credentials, Agent-X1 loads secrets from a local, git-ignored `.env` file at runtime using `python-dotenv`. Values are dynamically interpolated into [config.yaml](file:///Users/kundanyadav/SourceCode/Agent-X1/config.yaml) using the regex-matched `${ENV_VAR}` expansion block inside the inference router wrapper.
 
 ### 2.2 Default: Copilot Token Extraction & Handshake
 
@@ -306,13 +309,20 @@ To prevent autonomous loop failures, the agent does not operate on a free-form "
 [Dynamic Skill Generation]
 ```
 
-### 7.1 LLM-Based Task Decomposition & Approval Gate
-When a user goal is received, the Orchestrator manager executes a planning query against the active LLM provider:
-1. **Context Formulation**: The manager gathers active project file directories, packages, git status, and relevant RAG context from the semantic memory.
-2. **Decomposition Call**: The manager queries the LLM with a system schema requiring a JSON list of tasks matching a structured format.
-3. **DAG Generation**: The output is validated (e.g. via Pydantic) to construct the internal task graph (`TaskNode` entities with dependencies and worker assignments) and writes the proposal summary to `tasks_plan.md`.
-4. **Mandatory Sign-off Gating**: The Orchestrator transitions to a `paused:awaiting_approval` state, sending notification payloads to the terminal CLI and MS Teams Webhook bot. It halts execution loops and waits.
-5. **Resume on Approval**: If the user submits an approval payload (e.g. clicking "Approve" on the adaptive card or typing `y` in the CLI), the Orchestrator moves to the `running` state and begins worker task delegation. If the user declines, the branch is rolled back and the goal is aborted.
+### 7.1 LLM-Based Task Decomposition & Interactive Approval Gate
+When a user goal is received, the agent enters a stateful **Interactive Planning Loop (REPL)** (when running in `--chat`/`-c` or `--interactive`/`-i` modes):
+
+1. **Context Formulation & Initial Proposal**: The Orchestration manager gathers workspace directories, file paths, git status, and relevant semantic memory context, querying the LLM to generate an initial structured Markdown implementation plan.
+2. **Back-and-forth REPL Refinement**: The plan proposal is printed to the terminal, and the user is prompted to submit feedback. Any text feedback provided is appended to the message history, and the manager generates an updated, refined proposal.
+3. **Context Preference Harvesting**: User chat inputs are continuously scanned for key trigger terms indicating design preferences (`important`, `keep in mind`, `remember`, `make sure to`, etc.). When detected, these insights are harvested and stored directly inside the local SQLite semantic memory database under the `"user_preference"` category for future recall.
+4. **Distilled History Compaction (`/compact`)**: To prevent token bloat and context drift in long planning sessions, users can execute the `/compact` command. This prompts the LLM to distill the back-and-forth chat conversation logs into a single consolidated summary of agreed design constraints, replacing the active chat history list with this summary baseline and regenerating the proposal.
+5. **Secondary Q&A Thread (`/btw <question>`)**: To ask off-topic questions or lookup database architecture details without derailing the main proposal's prompt history, users can type `/btw <question>`. This executes a secondary Q&A completions thread using SQLite semantic memory context, printing the answer directly to the terminal and saving it, without altering the main plan's chat log.
+6. **Background Job Scheduling (`/schedule "<cron>"`)**: Users can defer immediate execution by scheduling the goal. Typing `/schedule` configures the job parameters.
+7. **Session Context Preservation (`/pin [name]`)**: Users can pin their active planning session using the `/pin` command. This serializes and stores the goal, full conversation history list, and scheduling details to a new `pinned_sessions` table in the SQLite database, referencing it by name (or a default generated timestamp name).
+8. **Context Resumption (`/resume`)**: Typing `/resume` queries SQLite for all available pinned sessions, displays them in a numbered menu, and allows the developer to choose a session by number or name. Upon choosing, the entire planning context (goal, history list, active proposal, and schedule settings) is restored into the live REPL loop.
+9. **Strict human sign-off Gating**: The execution loop is completely locked behind the strict sign-off phrase **`"approved for build"`**. Upon receiving this input:
+   - If a schedule was set, the goal configuration is stored in `tmp/scheduled_goal_<id>.json` and appended to [jobs.yaml](file:///Users/kundanyadav/SourceCode/Agent-X1/jobs.yaml).
+   - Otherwise, the finalized proposal is sent to the decomposition LLM to generate the JSON task DAG list, launching immediate worker agent execution.
 
 
 ### 7.2 Dynamic Re-planning & Error Recovery

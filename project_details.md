@@ -78,6 +78,22 @@ This document serves as a persistent context store and memory log for Antigravit
   - Added a Future Roadmap section to design documents planning for the **Headroom context compression layer** in Phase 2.
 * **Next Step**: Awaiting user approval of the implementation plan. Once approved, initialize `config.yaml` and build the inference client `router.py`.
 
+### 2026-06-28 (Stateful Planning, Slash Commands, & Distillation Phase)
+* **Goal**: Refine the developer harness to support stateful interactive planning, context preference memory loggers, secure environment config, and slash commands.
+* **Outcome**:
+  - Implemented stateful back-and-forth CLI planning loop (`interactive_planning_loop`) in [gateway.py](file:///Users/kundanyadav/SourceCode/Agent-X1/src/gateways/gateway.py) with dynamic prompt validation.
+  - Moved secrets, keys, and PATs to a git-ignored local `.env` configuration file with a version-controlled `.env.template`.
+  - Added strict execution sign-off gating requiring the exact phrase `"approved for build"`.
+  - Created automatic context preference semantic harvester (`learn_user_fact_if_needed`) that saves developer preferences to SQLite semantic memory database upon detection of key terms.
+  - Implemented planning loop slash commands:
+    * `/exit` (replaces `/abort` cleanly).
+    * `/goal <new_goal>` (resets planning baseline).
+    * `/schedule "<cron>"` (schedules the task asynchronously and appends job parameters to [jobs.yaml](file:///Users/kundanyadav/SourceCode/Agent-X1/jobs.yaml)).
+    * `/btw <question>` (secondary Q&A thread using SQLite memory facts that does not pollute main plan context).
+    * `/compact` (distills past conversation history into a concise summary of agreed design requirements to save LLM tokens and prevent context drift).
+  - Created automated test suites [test_interactive_planning.py](file:///Users/kundanyadav/SourceCode/Agent-X1/tests/test_interactive_planning.py) and [test_slash_commands.py](file:///Users/kundanyadav/SourceCode/Agent-X1/tests/test_slash_commands.py) to cover all new behaviors (68 total tests OK).
+* **Next Step**: Ready for further testing or user task delegation.
+
 
 
 

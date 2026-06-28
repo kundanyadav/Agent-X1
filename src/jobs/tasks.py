@@ -280,3 +280,28 @@ def consolidate_memories(config_path: str = "config.yaml"):
             print(f"[!] Error consolidating session {session_id}: {ex}")
 
     print(f"[*] Memory consolidation finished. Consolidated {consolidated_count} sessions.")
+
+def run_scheduled_goal(config_path: str = "config.yaml"):
+    """Locates and runs the most recently scheduled goal configuration."""
+    import glob
+    import json
+    import pathlib
+    files = sorted(glob.glob("tmp/scheduled_goal_*.json"))
+    if not files:
+        print("[!] No scheduled goals found in tmp/")
+        return
+        
+    target_file = files[-1]
+    print(f"[*] Loading scheduled goal from: {target_file}")
+    try:
+        with open(target_file, "r") as f:
+            data = json.load(f)
+        goal = data.get("goal")
+        correlation_id = data.get("correlation_id")
+        tasks = data.get("tasks", [])
+        
+        print(f"[*] Running scheduled goal: {goal}")
+        engine, _ = load_resources(config_path)
+        engine.execute_loop(correlation_id, tasks)
+    except Exception as e:
+        print(f"[!] Error executing scheduled goal: {e}")

@@ -71,6 +71,17 @@ class MemoryManager:
                 )
             """)
             
+            # Pinned Sessions Table
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS pinned_sessions (
+                    name TEXT PRIMARY KEY,
+                    goal TEXT NOT NULL,
+                    history TEXT NOT NULL,
+                    scheduled_cron TEXT,
+                    timestamp REAL NOT NULL
+                )
+            """)
+            
             # Create compound indexes for partitioned lookup speed and audit verification
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_actions_owner_session ON actions(agent_owner, session_id)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_feedback_owner_action ON feedback(agent_owner, action_id)")
@@ -230,3 +241,41 @@ class MemoryManager:
         # Sort by similarity descending
         results.sort(key=lambda x: x["similarity"], reverse=True)
         return results
+
+    def pin_session(self, name: str, goal: str, history: List[Dict[str, str]], scheduled_cron: Optional[str] = None):
+        """Saves a planning session context into the pinned_sessions table."""
+        with sqlite3.connect(self.db_path, timeout=30.0) as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "INSERT OR REPLACE INTO pinned_sessions (name, goal, history, scheduled_cron, timestamp) VALUES (?, ?, ?, ?, ?)",
+                (name, goal, json.dumps(history), scheduled_cron, time.time())
+            )
+            conn.commit()
+
+    def get_pinned_sessions(self) -> List[Dict[str, Any]]:
+        """Retrieves all pinned sessions ordered by timestamp."""
+        with sqlite3.connect(self.db_path, timeout=30.0) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            try:
+                cursor.execute("SELECT name, goal, history, scheduled_cron, timestamp FROM pinned_sessions ORDER BY timestamp DESC")
+                rows = cursor.fetchall()
+                return [dict(r) for r in rows]
+            except sqlite3.OperationalError:
+                return []
+
+    def get_pinned_session(self, name: str) -> Optional[Dict[str, Any]]:
+        """Retrieves a single pinned session context by name."""
+        with sqlite3.connect(self.db_path, timeout=30.0) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            try:
+                cursor.execute("SELECT name, goal, history, scheduled_cron FROM pinned_sessions WHERE name = ?", (name,))
+                row = cursor.fetchone()
+                if row:
+                    data = dict(row)
+                    data["history"] = json.loads(data["history"])
+                    return data
+            except sqlite3.OperationalError:
+                pass
+        return None
