@@ -7,6 +7,12 @@ import pathlib
 import requests
 from typing import List, Dict, Any, Optional
 
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
 class InferenceRouter:
     def __init__(self, config_path: str = "config.yaml"):
         self.config_path = pathlib.Path(config_path)
