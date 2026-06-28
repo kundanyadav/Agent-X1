@@ -1,0 +1,16 @@
+#!/usr/bin/env python3
+import os
+import sys
+import pathlib
+
+# Resolve workspace directory and append to sys.path to resolve 'src' package imports
+workspace_dir = pathlib.Path(__file__).parent.resolve()
+sys.path.insert(0, str(workspace_dir))
+
+# Change current working directory to project root so relative config paths resolve correctly
+os.chdir(workspace_dir)
+
+from src.gateways.gateway import main
+
+if __name__ == "__main__":
+    main()

@@ -54,13 +54,13 @@ python3 -m src.gateways.gateway [flags]
 
 **1. Run a goal in interactive planning mode (with dry-run simulation):**
 ```bash
-python3 -m src.gateways.gateway --chat --dry-run
+./agent-x1 --chat --dry-run
 ```
 *(If you omit the goal, the CLI prompts you dynamically: `Please enter your goal:`)*
 
 **2. Direct execution of a goal with auto-approval:**
 ```bash
-python3 -m src.gateways.gateway --goal "Implement user authentication"
+./agent-x1 --goal "Implement user authentication"
 ```
 
 ---
