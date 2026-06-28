@@ -7,7 +7,7 @@ Agent-X1 is an autonomous, self-improving developer harness optimized for macOS,
 ## Features
 * **Manager-Worker Topology**: Decouples high-level task planning from execution.
 * **Interactive CLI Planning Loop**: Run `--chat` or `--interactive` to review proposals, refine plans back-and-forth, and explicitly authorize execution.
-* **Inference Router**: Swap seamlessly between zero-configuration local GitHub Copilot OAuth tokens or Bring Your Own Key (BYOK) providers (OpenAI, Gemini, Anthropic, Ollama).
+* **Inference Router**: Swap seamlessly between zero-configuration local GitHub Copilot OAuth tokens or Bring Your Own Key (BYOK) providers (OpenAI, OpenRouter, Gemini, Anthropic, Ollama).
 * **Semantic Context Harvesting**: Automatically logs developer preferences and QA sessions directly into SQLite semantic memory.
 * **Background Task Scheduler**: Schedule execution loops to run in the background using cron configurations.
 * **Strict Human Sign-off**: Gate build execution behind the phrase `"approved for build"`.

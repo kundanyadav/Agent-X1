@@ -27,11 +27,15 @@ inference:
   openai:
     api_key: "${MOCK_OPENAI_KEY}"
     base_url: "https://api.openai.com/v1"
+  openrouter:
+    api_key: "${MOCK_OPENROUTER_KEY}"
+    base_url: "https://openrouter.ai/api/v1"
 """
         with open(self.mock_config_path, "w") as f:
             f.write(mock_config)
             
         os.environ["MOCK_OPENAI_KEY"] = "sk-mock-12345"
+        os.environ["MOCK_OPENROUTER_KEY"] = "sk-or-mock-12345"
 
     def tearDown(self):
         # Cleanup mock config file
@@ -117,6 +121,35 @@ inference:
             
         # Verify that mock_post was called twice
         self.assertEqual(mock_post.call_count, 2)
+
+    @patch("requests.post")
+    def test_chat_completions_openrouter(self, mock_post):
+        """Verifies that requests to the openrouter provider are correctly routed and custom headers injected."""
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {
+            "choices": [{"message": {"content": "Hello from OpenRouter!"}}]
+        }
+        mock_post.return_value = mock_resp
+        
+        router = InferenceRouter(config_path=str(self.mock_config_path))
+        
+        # Override active_provider to openrouter and test completions
+        router.config["inference"]["active_provider"] = "openrouter"
+        router.config["inference"]["model"] = "google/gemini-flash-1.5"
+        router.config["inference"]["openrouter"]["preset"] = "my-preset-slug"
+        
+        res = router.chat_completions(messages=[{"role": "user", "content": "hi"}])
+        self.assertEqual(res["choices"][0]["message"]["content"], "Hello from OpenRouter!")
+        
+        # Verify custom headers and payload structure
+        mock_post.assert_called_once()
+        args, kwargs = mock_post.call_args
+        self.assertEqual(args[0], "https://openrouter.ai/api/v1/chat/completions")
+        self.assertEqual(kwargs["headers"]["Authorization"], "Bearer sk-or-mock-12345")
+        self.assertEqual(kwargs["headers"]["HTTP-Referer"], "https://github.com/google-deepmind/Agent-X1")
+        self.assertEqual(kwargs["headers"]["X-Title"], "Agent-X1")
+        self.assertEqual(kwargs["json"]["model"], "@preset/my-preset-slug")
 
 if __name__ == "__main__":
     unittest.main()

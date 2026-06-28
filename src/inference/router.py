@@ -130,6 +130,8 @@ class InferenceRouter:
         try:
             return self._execute_chat_completions(active_provider, messages, stream, **kwargs)
         except requests.exceptions.HTTPError as e:
+            if e.response is not None:
+                print(f"API Error Response: {e.response.text}", file=sys.stderr)
             # Check if we hit rate limits (HTTP 429) or other API exceptions
             if e.response is not None and e.response.status_code == 429:
                 fallback_provider = inf_cfg.get("fallback_provider")
@@ -220,6 +222,38 @@ class InferenceRouter:
             url = f"https://generativelanguage.googleapis.com/v1beta/openai/chat/completions?key={api_key}"
             payload = {
                 "model": model,
+                "messages": messages,
+                "temperature": temperature,
+                "stream": stream
+            }
+            response = requests.post(url, json=payload, headers=headers, stream=stream)
+            response.raise_for_status()
+            
+            if stream:
+                return response
+            return response.json()
+            
+        elif provider == "openrouter":
+            api_key = inf_config.get("openrouter", {}).get("api_key")
+            base_url = inf_config.get("openrouter", {}).get("base_url", "https://openrouter.ai/api/v1")
+            preset = inf_config.get("openrouter", {}).get("preset")
+            
+            req_model = model
+            if preset:
+                if preset.startswith("@preset/") or preset.startswith("preset:"):
+                    req_model = preset
+                else:
+                    req_model = f"@preset/{preset}"
+                    
+            headers = {
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+                "HTTP-Referer": "https://github.com/google-deepmind/Agent-X1",
+                "X-Title": "Agent-X1"
+            }
+            url = f"{base_url.rstrip('/')}/chat/completions"
+            payload = {
+                "model": req_model,
                 "messages": messages,
                 "temperature": temperature,
                 "stream": stream

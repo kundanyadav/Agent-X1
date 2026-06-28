@@ -2,7 +2,7 @@
 
 # Inference Provider Options
 inference:
-  active_provider: "copilot"         # Options: copilot, openai, anthropic, gemini, ollama
+  active_provider: "openrouter"         # Options: copilot, openai, anthropic, gemini, ollama
   model: "gpt-4o"
   fallback_provider: "openai"
   fallback_model: "gpt-4o-mini"
@@ -11,6 +11,10 @@ inference:
   openai:
     api_key: "${OPENAI_API_KEY}"
     base_url: "https://api.openai.com/v1"
+  openrouter:
+    api_key: "${OPENROUTER_API_KEY}"
+    base_url: "https://openrouter.ai/api/v1"
+    preset: "free-kd1"                        # Optional: reference custom preset slug, e.g. "my-preset"
   anthropic:
     api_key: "${ANTHROPIC_API_KEY}"
     base_url: "https://api.anthropic.com/v1"
