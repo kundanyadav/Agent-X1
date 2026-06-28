@@ -2,12 +2,22 @@ __pycache__/
 *.pyc
 *.pyo
 *.pyd
+
+# Version control
 .git/
 .gitignore
+
+# Dev-only directories (not needed in image)
 .agents/
 tests/
 docs/
+
+# Runtime directories (mounted as volumes at runtime)
 tmp/
 logs/
-*.md
+
+# Secrets — NEVER bake into the image
+.env
+
+# macOS artefacts
 .DS_Store

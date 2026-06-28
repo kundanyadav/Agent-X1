@@ -1,39 +1,53 @@
 version: "3.8"
 
+# ── Shared env block (DRY) ─────────────────────────────────────────
+x-common-env: &common-env
+  env_file: .env
+  environment:
+    - GITHUB_COPILOT_OAUTH_TOKEN=${GITHUB_COPILOT_OAUTH_TOKEN}
+    - OPENAI_API_KEY=${OPENAI_API_KEY}
+    - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+    - GEMINI_API_KEY=${GEMINI_API_KEY}
+    - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+    - AGENT_API_KEY=${AGENT_API_KEY}
+    - ADO_PERSONAL_ACCESS_TOKEN=${ADO_PERSONAL_ACCESS_TOKEN}
+
+# ── Shared volume block (DRY) ──────────────────────────────────────
+x-common-volumes: &common-volumes
+  volumes:
+    - ./config.yaml:/app/config.yaml
+    - ./jobs.yaml:/app/jobs.yaml
+    - ./tmp:/app/tmp
+    - ./logs:/app/logs
+
 services:
+
+  # REST API gateway (headless, production)
   agent-api:
     build: .
     container_name: agent-x1-api
     ports:
       - "8000:8000"
-    environment:
-      - GITHUB_COPILOT_OAUTH_TOKEN=${GITHUB_COPILOT_OAUTH_TOKEN}
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
-      - GEMINI_API_KEY=${GEMINI_API_KEY}
-      - AGENT_API_KEY=${AGENT_API_KEY}
-      - ADO_PERSONAL_ACCESS_TOKEN=${ADO_PERSONAL_ACCESS_TOKEN}
-    volumes:
-      - ./config.yaml:/app/config.yaml
-      - ./jobs.yaml:/app/jobs.yaml
-      - ./tmp:/app/tmp
-      - ./logs:/app/logs
+    <<: *common-env
+    <<: *common-volumes
     restart: unless-stopped
 
+  # Background cron scheduler
   agent-scheduler:
     build: .
     container_name: agent-x1-scheduler
     command: ["python3", "-m", "src.jobs.scheduler"]
-    environment:
-      - GITHUB_COPILOT_OAUTH_TOKEN=${GITHUB_COPILOT_OAUTH_TOKEN}
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
-      - GEMINI_API_KEY=${GEMINI_API_KEY}
-      - AGENT_API_KEY=${AGENT_API_KEY}
-      - ADO_PERSONAL_ACCESS_TOKEN=${ADO_PERSONAL_ACCESS_TOKEN}
-    volumes:
-      - ./config.yaml:/app/config.yaml
-      - ./jobs.yaml:/app/jobs.yaml
-      - ./tmp:/app/tmp
-      - ./logs:/app/logs
+    <<: *common-env
+    <<: *common-volumes
     restart: unless-stopped
+
+  # Interactive CLI (--chat mode) — attach with: docker compose run agent-cli
+  agent-cli:
+    build: .
+    container_name: agent-x1-cli
+    command: ["python3", "-m", "src.gateways.gateway", "--chat"]
+    stdin_open: true   # keeps stdin open for interactive input
+    tty: true          # allocates a pseudo-TTY for ANSI colours & readline
+    <<: *common-env
+    <<: *common-volumes
+    restart: "no"      # one-shot interactive session, no auto-restart
