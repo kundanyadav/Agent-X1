@@ -5,12 +5,15 @@ Agent-X1 is an autonomous, self-improving developer harness optimized for macOS,
 ---
 
 ## Features
+
 * **Manager-Worker Topology**: Decouples high-level task planning from execution.
 * **Interactive CLI Planning Loop**: Run `--chat` or `--interactive` to review proposals, refine plans back-and-forth, and explicitly authorize execution.
-* **Inference Router**: Swap seamlessly between zero-configuration local GitHub Copilot OAuth tokens or Bring Your Own Key (BYOK) providers (OpenAI, OpenRouter, Gemini, Anthropic, Ollama).
+* **Premium REPL Console**: Arrow-key history, Tab auto-completion, colored output (neon blue user input, mustard yellow agent output), and a full suite of slash commands.
+* **Inference Router**: Swap seamlessly between zero-configuration local GitHub Copilot OAuth tokens or Bring Your Own Key (BYOK) providers (OpenAI, OpenRouter, Gemini, Anthropic, Ollama). OpenRouter presets are supported via `@preset/<slug>` routing.
 * **Semantic Context Harvesting**: Automatically logs developer preferences and QA sessions directly into SQLite semantic memory.
 * **Background Task Scheduler**: Schedule execution loops to run in the background using cron configurations.
 * **Strict Human Sign-off**: Gate build execution behind the phrase `"approved for build"`.
+* **Pinned Session Management**: Save, restore, and delete planning sessions from SQLite so you never lose context.
 
 ---
 
@@ -29,19 +32,22 @@ Agent-X1 is an autonomous, self-improving developer harness optimized for macOS,
    *Note: `.env` is ignored by Git to protect your credentials.*
 
 3. **Application configuration**:
-   Edit [config.yaml](file:///Users/kundanyadav/SourceCode/Agent-X1/config.yaml) to customize model parameters, active providers, DB paths, and git repo locations.
+   Edit `config.yaml` to customize model parameters, active providers, DB paths, and git repo locations.
 
 ---
 
 ## Usage
 
-Start the agent CLI using python:
+Start the agent CLI using the wrapper script or python directly:
 
 ```bash
+./agent-x1 --chat
+# or
 python3 -m src.gateways.gateway [flags]
 ```
 
 ### Command Line Flags
+
 | Flag | Description |
 | :--- | :--- |
 | `-g`, `--goal` | Specify a goal directly as an argument. |
@@ -52,13 +58,18 @@ python3 -m src.gateways.gateway [flags]
 
 ### Command Examples
 
-**1. Run a goal in interactive planning mode (with dry-run simulation):**
+**1. Start a chat session (goal prompted interactively):**
+```bash
+./agent-x1 --chat
+```
+*(If you omit the goal, the CLI prompts: `Please enter your goal:`. You can also type `/resume` here to restore a saved session.)*
+
+**2. Run a goal in interactive planning mode with dry-run simulation:**
 ```bash
 ./agent-x1 --chat --dry-run
 ```
-*(If you omit the goal, the CLI prompts you dynamically: `Please enter your goal:`)*
 
-**2. Direct execution of a goal with auto-approval:**
+**3. Direct execution of a goal with auto-approval:**
 ```bash
 ./agent-x1 --goal "Implement user authentication"
 ```
@@ -67,26 +78,88 @@ python3 -m src.gateways.gateway [flags]
 
 ## Interactive Planning Slash Commands
 
-When in `--chat` or `--interactive` mode, you can type special slash commands directly into the prompt:
+When in `--chat` or `--interactive` mode, the REPL supports the following slash commands. Type `/help` at any time to print the full list.
 
-* **`/exit`**: Aborts the planning session and exits cleanly.
-* **`/goal <new_goal>`**: Dynamically updates the active goal of the session, wipes previous chat logs, and requests a fresh initial proposal from the LLM.
-* **`/btw <question>`**: Runs a **secondary Q&A thread** that queries semantic memory and the LLM. It prints the answer in your console and logs the exchange to memory, but **does not** pollute the chat history or modify the main proposal plan.
-* **`/compact`**: Condenses the previous conversational turns into a single distilled summary of agreed requirements to save token counts and prevent context drift.
-* **`/pin [name]`**: Saves the active goal, history, and cron schedule into SQLite memory (defaults to timestamp-based name if name is omitted).
-* **`/resume`**: Lists available pinned sessions and prompts you to select and load an active context.
-* **`/schedule "<cron_expression>"`**: Configures a background cron schedule for the goal (e.g. `/schedule "0 2 * * *"`). Once you type `"approved for build"`, the goal is saved under `tmp/` and written to [jobs.yaml](file:///Users/kundanyadav/SourceCode/Agent-X1/jobs.yaml).
+### Session & Navigation
+
+| Command | Description |
+| :--- | :--- |
+| `/exit` | Aborts the planning session and exits cleanly. |
+| `/goal <new_goal>` | Pivots the active goal, clears history, and generates a fresh proposal. |
+| `/resume` | Lists all pinned sessions and lets you pick one to restore by number or name. You can also type `/resume` at the initial goal prompt to skip entering a new goal entirely. |
+
+### Plan Management
+
+| Command | Description |
+| :--- | :--- |
+| `/pin [name]` | Saves the active goal, conversation history, and schedule to SQLite. Defaults to a timestamp-based name if omitted. |
+| `/delete [name]` | Deletes a pinned session by name. If no name is given, shows a numbered list to choose from. |
+| `/compact` | Condenses the current conversation into a single distilled summary to save token count and prevent context drift. |
+| `/btw <question>` | Runs a **secondary Q&A thread** against semantic memory + the LLM. Prints the answer in-console without polluting the main plan history. |
+| `/schedule "<cron>"` | Sets a background cron schedule (e.g. `/schedule "0 2 * * *"`). Written to `jobs.yaml` on approval. |
+
+### REPL Utilities
+
+| Command | Alias | Description |
+| :--- | :--- | :--- |
+| `/clear` | `/cls` | Clears the terminal screen and reprints the active proposal in a clean framed view. |
+| `/status` | `/info` | Prints a live session panel: active goal, LLM provider, model, conversation turn, cron schedule, and pinned session count. |
+| `/export [filename]` | — | Exports the current proposal to a Markdown file inside `tmp/` (default: `proposal.md`). Includes goal and timestamp header. |
+| `/help` | `/options` | Reprints the full list of available slash commands. |
+
+### Approving & Aborting
+
+| Input | Effect |
+| :--- | :--- |
+| `approved for build` | Approves the proposal and triggers the execution loop (or writes to `jobs.yaml` if a schedule is set). |
+| `abort` / `no` | Aborts the planning session immediately. |
+
+---
+
+## Terminal UX
+
+The CLI uses **ANSI color styling** for a premium terminal experience:
+
+* 🔵 **Neon blue** — your live typing and input prompt
+* 🟡 **Mustard yellow** — agent status messages, proposal borders, and session info panels
+* ⚪ **White** — proposal content body
+* 🟢 **Green** — success confirmations (pin saved, session resumed, etc.)
+* 🔴 **Red** — warnings, errors, and abort messages
+* 🔵 **Cyan** — help text and command labels
+
+### Arrow-key History & Tab Completion
+
+* **Up / Down arrows** scroll through your previous inputs (persistent across sessions via `tmp/cli_history`).
+* **Tab key** auto-completes slash commands — type `/ex` and press Tab to complete `/exit` or `/export`.
+* Works on both Linux (GNU readline) and macOS (libedit) automatically.
 
 ---
 
 ## Directory Structure
 
-* `src/core/orchestrator.py`: Manager state machine coordinating execution loops and memory updates.
-* `src/gateways/gateway.py`: Terminal command console and REPL planner gateway.
-* `src/inference/router.py`: Handles token extraction, BYOK expansion, and LLM requests.
-* `src/jobs/`: Background cron daemon (`scheduler.py`) and job execution definitions (`tasks.py`).
-* `src/memory/`: Vector and SQLite databases tracking session traces and semantic preference facts.
-* `tests/`: Automated unit tests suite.
+```
+Agent-X1/
+├── src/
+│   ├── core/
+│   │   ├── orchestrator.py   # Manager state machine (planning, memory, execution)
+│   │   └── tools.py          # ToolRunner wiring lineage + memory managers
+│   ├── gateways/
+│   │   └── gateway.py        # CLI REPL gateway and interactive planning loop
+│   ├── inference/
+│   │   └── router.py         # Inference router (token extraction, BYOK, LLM dispatch)
+│   ├── memory/
+│   │   └── memory.py         # SQLite + vector semantic memory manager
+│   ├── audit/
+│   │   └── lineage.py        # Audit lineage logger (encrypted or plaintext JSONL)
+│   └── jobs/
+│       ├── scheduler.py      # Background cron daemon
+│       └── tasks.py          # Scheduled job execution definitions
+├── tests/                    # Automated unit test suite (77 tests)
+├── config.yaml               # Application configuration
+├── jobs.yaml                 # Scheduled background goals registry
+├── .env.template             # Secret key template
+└── agent-x1                  # CLI wrapper script
+```
 
 ---
 
@@ -95,20 +168,25 @@ When in `--chat` or `--interactive` mode, you can type special slash commands di
 To extend or integrate with the planning and context APIs, leverage these core methods:
 
 ### Orchestration Engine (`src/core/orchestrator.py`)
-* **`generate_planning_proposal(goal, history)`**: Prompts the active LLM to generate a structured design proposal.
-* **`decompose_plan_into_tasks(finalized_plan)`**: Compiles the finalized markdown plan into a structured JSON task DAG list.
-* **`learn_user_fact_if_needed(user_input)`**: Scans input for trigger keywords (e.g. `important`, `keep in mind`) to save design preferences to SQLite.
-* **`answer_planning_qa(question)`**: Executes an isolated Q&A thread query against semantic memory and the LLM.
-* **`compact_planning_history(goal, history)`**: Distills conversational loops to lower token count and prevent context drift.
+
+* **`generate_planning_proposal(goal, history)`** — Prompts the active LLM to generate a structured design proposal.
+* **`decompose_plan_into_tasks(finalized_plan)`** — Compiles the finalized markdown plan into a structured JSON task DAG list.
+* **`learn_user_fact_if_needed(user_input)`** — Scans input for trigger keywords (e.g. `important`, `keep in mind`) to save design preferences to SQLite.
+* **`answer_planning_qa(question)`** — Executes an isolated Q&A thread query against semantic memory and the LLM.
+* **`compact_planning_history(goal, history)`** — Distills conversational loops to lower token count and prevent context drift.
 
 ### Memory Manager (`src/memory/memory.py`)
-* **`pin_session(name, goal, history, scheduled_cron)`**: Serializes and stores active planning logs in SQLite.
-* **`get_pinned_sessions()`**: Retrieves all pinned sessions ordered by timestamp.
-* **`get_pinned_session(name)`**: Loads and parses a single pinned session's state.
+
+* **`pin_session(name, goal, history, scheduled_cron)`** — Serializes and stores active planning logs in SQLite.
+* **`get_pinned_sessions()`** — Retrieves all pinned sessions ordered by timestamp.
+* **`get_pinned_session(name)`** — Loads and parses a single pinned session's state.
+* **`delete_pinned_session(name)`** — Deletes a pinned session by name. Returns `True` on success, `False` if not found.
 
 ### CLI Planner Gateway (`src/gateways/gateway.py`)
-* **`interactive_planning_loop(goal, engine)`**: Runs the stateful interactive CLI planning loop (REPL).
-* **`save_scheduled_job(goal, cron, correlation_id)`**: Appends scheduled goal tasks to `jobs.yaml` and writes JSON specs to `tmp/`.
+
+* **`interactive_planning_loop(goal, engine)`** — Runs the stateful interactive CLI planning loop (REPL).
+* **`save_scheduled_job(goal, cron, correlation_id)`** — Appends scheduled goal tasks to `jobs.yaml` and writes JSON specs to `tmp/`.
 
 ### Background Scheduler Tasks (`src/jobs/tasks.py`)
-* **`run_scheduled_goal(config_path)`**: Locates and executes the most recently scheduled background goal.
+
+* **`run_scheduled_goal(config_path)`** — Locates and executes the most recently scheduled background goal.

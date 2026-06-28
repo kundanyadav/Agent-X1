@@ -51,9 +51,95 @@ except ImportError:
     def setup_readline():
         pass
 
+def print_startup_banner(config_path: str = "config.yaml"):
+    """Prints a premium ASCII art startup banner with animated boot sequence."""
+    import time
+
+    # ── ANSI colours ──────────────────────────────────────────────
+    NEON     = "\033[1;38;5;39m"   # bold electric blue  (user / brand)
+    MUSTARD  = "\033[38;5;178m"    # mustard yellow      (agent / info)
+    WHITE    = "\033[97m"          # bright white        (body text)
+    DIM      = "\033[2;37m"        # dim grey            (decorative lines)
+    GREEN    = "\033[92m"          # success green
+    RED      = "\033[91m"          # error red
+    CYAN     = "\033[96m"          # cyan                (labels)
+    RESET    = "\033[0m"
+
+    # ── ASCII logo ─────────────────────────────────────────────────
+    logo_lines = [
+        r"   ___                    __     _  __   ___  ",
+        r"  / _ |___ ____ ___  __ / /_   | |/_/  <  /  ",
+        r" / __ / _ `/ -_) _ \/ // __/  _>  <   / /   ",
+        r"/_/ |_\_, /\__/_//_/\_, /\__/ /_/|_|  /_/    ",
+        r"      /___/         /___/                      ",
+    ]
+
+    tagline   = "Autonomous Developer Harness  ·  v1.0"
+    separator = "─" * 52
+
+    os.system("cls" if os.name == "nt" else "clear")
+
+    # Print logo in neon blue
+    print()
+    for line in logo_lines:
+        print(f"{NEON}{line}{RESET}")
+    print()
+    print(f"{MUSTARD}  {tagline}{RESET}")
+    print(f"{DIM}  {separator}{RESET}")
+    print()
+
+    # ── Animated boot checklist ────────────────────────────────────
+    boot_steps = [
+        ("Loading config",        True),
+        ("Initialising readline", True),
+        ("Connecting to memory",  True),
+        ("Checking LLM router",   True),
+        ("Ready",                 True),
+    ]
+
+    for label, ok in boot_steps:
+        status_icon = f"{GREEN}✓{RESET}" if ok else f"{RED}✗{RESET}"
+        print(f"  {MUSTARD}[{RESET}{status_icon}{MUSTARD}]{RESET}  {WHITE}{label}...{RESET}")
+        time.sleep(0.07)   # snappy but visible
+
+    print()
+
+    # ── System info panel ──────────────────────────────────────────
+    try:
+        router = InferenceRouter(config_path=config_path)
+        cfg = router.config
+        active_provider = "unknown"
+        active_model    = "unknown"
+        for pname in ["openrouter", "openai", "gemini", "anthropic", "ollama"]:
+            pcfg = cfg.get(pname, {})
+            if pcfg.get("enabled"):
+                active_provider = pname
+                preset = pcfg.get("preset")
+                model  = pcfg.get("model", "unknown")
+                active_model = f"@preset/{preset}" if preset else model
+                break
+
+        db_path   = cfg.get("storage", {}).get("db_path", "tmp/memory.db")
+        db_status = f"{GREEN}connected{RESET}" if os.path.exists(db_path) else f"{MUSTARD}initialising{RESET}"
+    except Exception:
+        active_provider = "not configured"
+        active_model    = "not configured"
+        db_status       = f"{MUSTARD}initialising{RESET}"
+
+    print(f"  {DIM}{separator}{RESET}")
+    print(f"  {CYAN}Provider  {RESET}│ {WHITE}{active_provider}{RESET}")
+    print(f"  {CYAN}Model     {RESET}│ {WHITE}{active_model}{RESET}")
+    print(f"  {CYAN}Memory DB {RESET}│ {db_status}")
+    print(f"  {DIM}{separator}{RESET}")
+    print()
+    print(f"  {DIM}Type {RESET}{NEON}/help{RESET}{DIM} for all commands  ·  {RESET}{NEON}approved for build{RESET}{DIM} to execute  ·  {RESET}{NEON}/exit{RESET}{DIM} to quit{RESET}")
+    print()
+
+
 class CliGateway:
     def __init__(self, config_path: str = "config.yaml"):
         self.config_path = config_path
+
 
     def save_scheduled_job(self, goal: str, cron: str, correlation_id: str):
         """Appends the scheduled job to jobs.yaml and writes the goal config to tmp/scheduled_goal_<id>.json."""
@@ -594,7 +680,11 @@ def main():
     goal = args.goal
     resume_session = None
     
+    if interactive:
+        print_startup_banner(config_path=args.config)
+    
     gateway = CliGateway(config_path=args.config)
+
     
     if not goal:
         if interactive:
