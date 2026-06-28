@@ -279,3 +279,14 @@ class MemoryManager:
             except sqlite3.OperationalError:
                 pass
         return None
+
+    def delete_pinned_session(self, name: str) -> bool:
+        """Deletes a pinned session by name. Returns True if deleted, False otherwise."""
+        with sqlite3.connect(self.db_path, timeout=30.0) as conn:
+            cursor = conn.cursor()
+            try:
+                cursor.execute("DELETE FROM pinned_sessions WHERE name = ?", (name,))
+                conn.commit()
+                return cursor.rowcount > 0
+            except sqlite3.OperationalError:
+                return False

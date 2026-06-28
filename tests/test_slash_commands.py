@@ -322,5 +322,158 @@ class TestSlashCommands(unittest.TestCase):
         # Decompose was called with the restored proposal content
         mock_engine_instance.decompose_plan_into_tasks.assert_called_once_with("Old Pinned Proposal")
 
+    def test_db_delete_pinned_session(self):
+        """Verifies that delete_pinned_session deletes the specified session and returns correctness."""
+        import tempfile
+        import shutil
+        temp_dir = tempfile.mkdtemp()
+        db_path = os.path.join(temp_dir, "test_delete_mem.db")
+        
+        try:
+            mem = MemoryManager(db_path=db_path)
+            history = [{"role": "user", "content": "hello"}]
+            mem.pin_session("my_pin", "My Pinned Goal", history, "0 0 * * *")
+            
+            # Verify it exists
+            self.assertEqual(len(mem.get_pinned_sessions()), 1)
+            
+            # Delete it
+            success = mem.delete_pinned_session("my_pin")
+            self.assertTrue(success)
+            self.assertEqual(len(mem.get_pinned_sessions()), 0)
+            
+            # Try deleting non-existent session
+            success_fail = mem.delete_pinned_session("non_existent")
+            self.assertFalse(success_fail)
+        finally:
+            shutil.rmtree(temp_dir)
+
+    @patch("builtins.input")
+    @patch("src.gateways.gateway.InferenceRouter")
+    @patch("src.gateways.gateway.OrchestrationEngine")
+    def test_interactive_loop_delete(self, mock_engine_class, mock_router_class, mock_input):
+        """Verifies that /delete <name> command triggers memory delete_pinned_session."""
+        mock_router_instance = MagicMock()
+        mock_router_class.return_value = mock_router_instance
+        mock_router_instance.config = {
+            "storage": {"db_path": "tmp/test_mem.db", "audit_log_path": "tmp/test_audit.jsonl"}
+        }
+        
+        mock_engine_instance = MagicMock()
+        mock_engine_class.return_value = mock_engine_instance
+        mock_engine_instance.generate_correlation_id.return_value = "mock-id-12345"
+        mock_engine_instance.generate_planning_proposal.return_value = "Proposal"
+        mock_engine_instance.decompose_plan_into_tasks.return_value = []
+        
+        mock_input.side_effect = [
+            "/delete custom_pin_name",
+            "approved for build"
+        ]
+        
+        gateway = CliGateway(config_path="config.yaml")
+        status = gateway.run_goal("Goal", dry_run=True, interactive=True)
+        
+        self.assertEqual(status, "completed")
+        mock_engine_instance.memory.delete_pinned_session.assert_called_once_with("custom_pin_name")
+
+    @patch("builtins.input")
+    @patch("src.gateways.gateway.InferenceRouter")
+    @patch("src.gateways.gateway.OrchestrationEngine")
+    def test_interactive_loop_clear(self, mock_engine_class, mock_router_class, mock_input):
+        """Verifies that /clear resets the screen without reprinting the proposal or changing state."""
+        mock_router_instance = MagicMock()
+        mock_router_class.return_value = mock_router_instance
+        mock_router_instance.config = {
+            "storage": {"db_path": "tmp/test_mem.db", "audit_log_path": "tmp/test_audit.jsonl"}
+        }
+
+        mock_engine_instance = MagicMock()
+        mock_engine_class.return_value = mock_engine_instance
+        mock_engine_instance.generate_correlation_id.return_value = "mock-id-clear"
+        mock_engine_instance.generate_planning_proposal.return_value = "My Active Proposal"
+        mock_engine_instance.decompose_plan_into_tasks.return_value = []
+
+        mock_input.side_effect = [
+            "/clear",
+            "approved for build"
+        ]
+
+        gateway = CliGateway(config_path="config.yaml")
+        with patch("os.system") as mock_os_system:
+            status = gateway.run_goal("Goal", dry_run=True, interactive=True)
+            mock_os_system.assert_called_once()
+
+        self.assertEqual(status, "completed")
+        # generate_planning_proposal called once (initial proposal only — /clear does not re-generate)
+        mock_engine_instance.generate_planning_proposal.assert_called_once()
+
+    @patch("builtins.input")
+    @patch("src.gateways.gateway.InferenceRouter")
+    @patch("src.gateways.gateway.OrchestrationEngine")
+    def test_interactive_loop_status(self, mock_engine_class, mock_router_class, mock_input):
+        """Verifies that /status prints session metadata without altering the plan."""
+        mock_router_instance = MagicMock()
+        mock_router_class.return_value = mock_router_instance
+        mock_router_instance.config = {
+            "storage": {"db_path": "tmp/test_mem.db", "audit_log_path": "tmp/test_audit.jsonl"},
+            "openrouter": {"enabled": True, "preset": "free-kd1", "model": "ignored"}
+        }
+
+        mock_engine_instance = MagicMock()
+        mock_engine_class.return_value = mock_engine_instance
+        mock_engine_instance.generate_correlation_id.return_value = "mock-id-status"
+        mock_engine_instance.generate_planning_proposal.return_value = "Proposal"
+        mock_engine_instance.decompose_plan_into_tasks.return_value = []
+        mock_engine_instance.memory.get_pinned_sessions.return_value = []
+
+        mock_input.side_effect = [
+            "/status",
+            "approved for build"
+        ]
+
+        gateway = CliGateway(config_path="config.yaml")
+        status = gateway.run_goal("Goal", dry_run=True, interactive=True)
+
+        self.assertEqual(status, "completed")
+        # Status should not cause a new proposal to be generated
+        mock_engine_instance.generate_planning_proposal.assert_called_once()
+
+    @patch("builtins.input")
+    @patch("src.gateways.gateway.InferenceRouter")
+    @patch("src.gateways.gateway.OrchestrationEngine")
+    def test_interactive_loop_export(self, mock_engine_class, mock_router_class, mock_input):
+        """Verifies that /export writes the current proposal to a markdown file."""
+        import tempfile, shutil
+        mock_router_instance = MagicMock()
+        mock_router_class.return_value = mock_router_instance
+        mock_router_instance.config = {
+            "storage": {"db_path": "tmp/test_mem.db", "audit_log_path": "tmp/test_audit.jsonl"}
+        }
+
+        mock_engine_instance = MagicMock()
+        mock_engine_class.return_value = mock_engine_instance
+        mock_engine_instance.generate_correlation_id.return_value = "mock-id-export"
+        mock_engine_instance.generate_planning_proposal.return_value = "## Step 1\nDo the thing."
+        mock_engine_instance.decompose_plan_into_tasks.return_value = []
+
+        mock_input.side_effect = [
+            "/export test_export_plan",
+            "approved for build"
+        ]
+
+        gateway = CliGateway(config_path="config.yaml")
+        status = gateway.run_goal("Goal", dry_run=True, interactive=True)
+
+        self.assertEqual(status, "completed")
+        export_path = os.path.join("tmp", "test_export_plan.md")
+        self.assertTrue(os.path.exists(export_path), f"Expected export file at {export_path}")
+        with open(export_path, "r") as f:
+            content = f.read()
+        self.assertIn("## Step 1", content)
+        self.assertIn("Goal", content)
+        # Cleanup
+        if os.path.exists(export_path):
+            os.remove(export_path)
+
 if __name__ == "__main__":
     unittest.main()

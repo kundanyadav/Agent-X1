@@ -1,11 +1,55 @@
 import sys
 import argparse
 import pathlib
+import os
 from typing import Optional
 from src.inference.router import InferenceRouter
 from src.core.tools import ToolRunner
 from src.memory.memory import MemoryManager
 from src.core.orchestrator import OrchestrationEngine
+
+try:
+    import readline
+    import atexit
+    
+    class SlashCompleter:
+        def __init__(self, commands):
+            self.commands = commands
+
+        def complete(self, text, state):
+            if not text:
+                matches = self.commands
+            else:
+                matches = [x for x in self.commands if x.startswith(text)]
+            results = matches + [None]
+            return results[state]
+
+    def setup_readline():
+        commands = [
+            "/exit", "/help", "/options", "/pin", "/resume", 
+            "/delete", "/compact", "/goal", "/schedule", "/btw", 
+            "/clear", "/status", "/export"
+        ]
+        completer = SlashCompleter(commands)
+        readline.set_completer(completer.complete)
+        
+        # Support both GNU Readline and macOS libedit (which uses bind instead of parse_and_bind)
+        if "libedit" in readline.__doc__:
+            readline.parse_and_bind("bind ^I rl_complete")
+        else:
+            readline.parse_and_bind("tab: complete")
+            
+        os.makedirs("tmp", exist_ok=True)
+        history_file = "tmp/cli_history"
+        try:
+            if os.path.exists(history_file):
+                readline.read_history_file(history_file)
+        except Exception:
+            pass
+        atexit.register(readline.write_history_file, history_file)
+except ImportError:
+    def setup_readline():
+        pass
 
 class CliGateway:
     def __init__(self, config_path: str = "config.yaml"):
@@ -65,43 +109,98 @@ class CliGateway:
         except Exception as e:
             print(f"[!] Error: Failed to write to jobs.yaml: {e}")
 
-    def interactive_planning_loop(self, goal: str, engine: OrchestrationEngine) -> str:
+    def interactive_planning_loop(self, goal: str, engine: OrchestrationEngine, resume_session: Optional[str] = None) -> str:
         """Runs a back-and-forth interactive CLI chat loop to refine the implementation plan."""
-        print("\n=== Entering Interactive Planning Phase ===")
-        print(f"Goal: {goal}")
+        # ANSI Escape Sequences for styling
+        NEON_BLUE = "\033[1;38;5;39m"  # Bold neon/electric blue
+        MUSTARD = "\033[38;5;178m"    # Mustard yellow
+        WHITE = "\033[97m"            # Bright white
+        RESET = "\033[0m"             # Reset colors
+        GREEN = "\033[92m"            # Success Green
+        RED = "\033[91m"              # Warning/Alert Red
+        CYAN = "\033[96m"             # Options/Prompt Cyan
+
+        print(f"\n{MUSTARD}=== Entering Interactive Planning Phase ==={RESET}")
         
         history = []
         scheduled_cron = None
         
-        # Get first proposal
-        print("\n[*] Generating initial proposal...")
-        proposal = engine.generate_planning_proposal(goal, history)
-        history.append({"role": "assistant", "content": proposal})
+        if resume_session:
+            try:
+                full_context = engine.memory.get_pinned_session(resume_session)
+                if full_context:
+                    goal = full_context.get("goal")
+                    history = full_context.get("history", [])
+                    scheduled_cron = full_context.get("scheduled_cron")
+                    
+                    proposal = "No plan proposal found. Please type '/compact' or write feedback to generate one."
+                    for msg in reversed(history):
+                        if msg.get("role") == "assistant":
+                            proposal = msg.get("content")
+                            break
+                    print(f"{GREEN}[+] Resumed session '{resume_session}' successfully.{RESET}")
+                    print(f"{MUSTARD}[*] Restored Goal: '{goal}'{RESET}")
+                    if scheduled_cron:
+                        print(f"{MUSTARD}[*] Restored Schedule: '{scheduled_cron}'{RESET}")
+                else:
+                    print(f"{RED}[!] Error: Failed to load pinned session '{resume_session}'. Generating new proposal...{RESET}")
+                    print(f"\n{MUSTARD}[*] Generating initial proposal...{RESET}")
+                    proposal = engine.generate_planning_proposal(goal, history)
+                    history.append({"role": "assistant", "content": proposal})
+            except Exception as e:
+                print(f"{RED}[!] Error loading pinned session '{resume_session}': {e}. Generating new proposal...{RESET}")
+                print(f"\n{MUSTARD}[*] Generating initial proposal...{RESET}")
+                proposal = engine.generate_planning_proposal(goal, history)
+                history.append({"role": "assistant", "content": proposal})
+        else:
+            print(f"{WHITE}Goal: {goal}{RESET}")
+            # Get first proposal
+            print(f"\n{MUSTARD}[*] Generating initial proposal...{RESET}")
+            proposal = engine.generate_planning_proposal(goal, history)
+            history.append({"role": "assistant", "content": proposal})
+        
+        reprint_proposal = True
+        first_turn = True
         
         while True:
-            print("\n" + "=" * 60)
-            print(proposal)
-            print("=" * 60 + "\n")
-            if scheduled_cron:
-                print(f"[Scheduled]: Job will be scheduled to run on: '{scheduled_cron}'")
+            if reprint_proposal:
+                print(f"\n{MUSTARD}" + "=" * 60)
+                print(f"{WHITE}{proposal}")
+                print(f"{MUSTARD}" + "=" * 60 + f"{RESET}\n")
+                if scheduled_cron:
+                    print(f"{GREEN}[Scheduled]: Job will be scheduled to run on: '{scheduled_cron}'{RESET}\n")
             
-            print("Options:")
-            print("  - Type your feedback to refine the plan.")
-            print("  - Type '/btw <question>' to ask a question without changing the plan.")
-            print("  - Type '/compact' to distill conversation history and save tokens.")
-            print("  - Type '/goal <new_goal>' to pivot and reset the session.")
-            print("  - Type '/schedule \"<cron>\"' to schedule execution.")
-            print("  - Type '/pin [name]' to save current session context.")
-            print("  - Type '/resume' to choose and restore a pinned session.")
-            print("  - Type 'approved for build' to approve the plan and start execution.")
-            print("  - Type '/exit' to cancel.")
+            if first_turn:
+                print(f"{CYAN}Options:{RESET}")
+                print("  - Type your feedback to refine the plan.")
+                print("  - Type '/btw <question>' to ask a question without changing the plan.")
+                print("  - Type '/compact' to distill conversation history and save tokens.")
+                print("  - Type '/goal <new_goal>' to pivot and reset the session.")
+                print("  - Type '/schedule \"<cron>\"' to schedule execution.")
+                print("  - Type '/pin [name]' to save current session context.")
+                print("  - Type '/resume' to choose and restore a pinned session.")
+                print("  - Type '/delete [name]' to delete a pinned session.")
+                print("  - Type '/clear' to clear the screen and reprint the plan.")
+                print("  - Type '/status' to show active provider, model, and session info.")
+                print("  - Type '/export [filename]' to save the plan to a markdown file.")
+                print("  - Type 'approved for build' to approve the plan and start execution.")
+                print("  - Type '/exit' to cancel.")
+                print(f"  (Type {CYAN}/help{RESET} at any time to see these options again)\n")
+                first_turn = False
+            
+            # Default behavior: reprint proposal on next turn unless suppressed
+            reprint_proposal = True
             
             try:
-                user_input = input("\nYour feedback/decision: ").strip()
+                # User typing in neon blue
+                user_input = input(f"{NEON_BLUE}Your feedback/decision (type /help for options): ")
             except KeyboardInterrupt:
-                print("\n[!] Execution aborted by keyboard interrupt.")
+                print(f"\n{RED}[!] Execution aborted by keyboard interrupt.{RESET}")
                 return ""
+            finally:
+                print(RESET, end="", flush=True)
                 
+            user_input = user_input.strip()
             if not user_input:
                 continue
                 
@@ -112,8 +211,26 @@ class CliGateway:
                 arg = parts[1].strip() if len(parts) > 1 else ""
                 
                 if cmd == "/exit":
-                    print("\n[!] Execution aborted.")
+                    print(f"\n{RED}[!] Execution aborted.{RESET}")
                     return ""
+                elif cmd in ["/help", "/options"]:
+                    print(f"\n{CYAN}Options:{RESET}")
+                    print("  - Type your feedback to refine the plan.")
+                    print("  - Type '/btw <question>' to ask a question without changing the plan.")
+                    print("  - Type '/compact' to distill conversation history and save tokens.")
+                    print("  - Type '/goal <new_goal>' to pivot and reset the session.")
+                    print("  - Type '/schedule \"<cron>\"' to schedule execution.")
+                    print("  - Type '/pin [name]' to save current session context.")
+                    print("  - Type '/resume' to choose and restore a pinned session.")
+                    print("  - Type '/delete [name]' to delete a pinned session.")
+                    print("  - Type '/clear' to clear the screen and reprint the plan.")
+                    print("  - Type '/status' to show active provider, model, and session info.")
+                    print("  - Type '/export [filename]' to save the plan to a markdown file.")
+                    print("  - Type 'approved for build' to approve the plan and start execution.")
+                    print("  - Type '/exit' to cancel.")
+                    print()
+                    reprint_proposal = False
+                    continue
                 elif cmd == "/pin":
                     pin_name = arg
                     if not pin_name:
@@ -121,18 +238,20 @@ class CliGateway:
                         pin_name = f"pin_{int(time.time())}"
                     try:
                         engine.memory.pin_session(pin_name, goal, history, scheduled_cron)
-                        print(f"[+] Pinned session saved as '{pin_name}'.")
+                        print(f"{GREEN}[+] Pinned session saved as '{pin_name}'.{RESET}\n")
                     except Exception as e:
-                        print(f"[!] Error pinning session: {e}")
+                        print(f"{RED}[!] Error pinning session: {e}{RESET}\n")
+                    reprint_proposal = False
                     continue
                 elif cmd == "/resume":
                     try:
                         pinned = engine.memory.get_pinned_sessions()
                         if not pinned:
-                            print("[!] No pinned sessions found.")
+                            print(f"{RED}[!] No pinned sessions found.{RESET}\n")
+                            reprint_proposal = False
                             continue
                         
-                        print("\nAvailable pinned sessions:")
+                        print(f"\n{MUSTARD}Available pinned sessions:{RESET}")
                         for idx, session in enumerate(pinned, 1):
                             name = session.get("name")
                             session_goal = session.get("goal")
@@ -141,9 +260,10 @@ class CliGateway:
                             dt_str = datetime.datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M:%S")
                             print(f"  {idx}. {name} - Goal: {session_goal} (Pinned: {dt_str})")
                         
-                        choice_input = input("\nChoose a session number or name to resume (or type '/exit' to cancel): ").strip()
+                        choice_input = input(f"\nChoose a session number or name to resume (or type '/exit' to cancel): ").strip()
                         if not choice_input or choice_input.lower() == "/exit":
-                            print("[*] Resume cancelled.")
+                            print(f"{MUSTARD}[*] Resume cancelled.{RESET}\n")
+                            reprint_proposal = False
                             continue
                             
                         target_session = None
@@ -161,13 +281,15 @@ class CliGateway:
                                     break
                                     
                         if not target_session:
-                            print("[!] Error: Invalid selection or name.")
+                            print(f"{RED}[!] Error: Invalid selection or name.{RESET}\n")
+                            reprint_proposal = False
                             continue
                             
                         name = target_session.get("name")
                         full_context = engine.memory.get_pinned_session(name)
                         if not full_context:
-                            print(f"[!] Error: Failed to load pinned session '{name}'.")
+                            print(f"{RED}[!] Error: Failed to load pinned session '{name}'.{RESET}\n")
+                            reprint_proposal = False
                             continue
                             
                         goal = full_context.get("goal")
@@ -180,76 +302,199 @@ class CliGateway:
                                 proposal = msg.get("content")
                                 break
                                 
-                        print(f"\n[+] Resumed session '{name}' successfully.")
-                        print(f"[*] Restored Goal: '{goal}'")
+                        print(f"\n{GREEN}[+] Resumed session '{name}' successfully.{RESET}")
+                        print(f"{MUSTARD}[*] Restored Goal: '{goal}'{RESET}")
                         if scheduled_cron:
-                            print(f"[*] Restored Schedule: '{scheduled_cron}'")
+                            print(f"{MUSTARD}[*] Restored Schedule: '{scheduled_cron}'{RESET}")
                             
                     except Exception as e:
-                        print(f"[!] Error resuming session: {e}")
+                        print(f"{RED}[!] Error resuming session: {e}{RESET}\n")
+                    continue
+                elif cmd == "/delete":
+                    try:
+                        if arg:
+                            deleted = engine.memory.delete_pinned_session(arg)
+                            if deleted:
+                                print(f"{GREEN}[+] Deleted pinned session '{arg}' successfully.{RESET}\n")
+                            else:
+                                print(f"{RED}[!] Error: Pinned session '{arg}' not found.{RESET}\n")
+                        else:
+                            pinned = engine.memory.get_pinned_sessions()
+                            if not pinned:
+                                print(f"{RED}[!] No pinned sessions found.{RESET}\n")
+                                reprint_proposal = False
+                                continue
+                            
+                            print(f"\n{MUSTARD}Available pinned sessions:{RESET}")
+                            for idx, session in enumerate(pinned, 1):
+                                name = session.get("name")
+                                session_goal = session.get("goal")
+                                ts = session.get("timestamp")
+                                import datetime
+                                dt_str = datetime.datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M:%S")
+                                print(f"  {idx}. {name} - Goal: {session_goal} (Pinned: {dt_str})")
+                            
+                            choice_input = input(f"\nChoose a session number or name to delete (or type '/exit' to cancel): ").strip()
+                            if not choice_input or choice_input.lower() == "/exit":
+                                print(f"{MUSTARD}[*] Deletion cancelled.{RESET}\n")
+                                reprint_proposal = False
+                                continue
+                                
+                            target_name = None
+                            try:
+                                choice_idx = int(choice_input) - 1
+                                if 0 <= choice_idx < len(pinned):
+                                    target_name = pinned[choice_idx]["name"]
+                            except ValueError:
+                                pass
+                                
+                            if not target_name:
+                                for session in pinned:
+                                    if session.get("name") == choice_input:
+                                        target_name = session.get("name")
+                                        break
+                                        
+                            if not target_name:
+                                print(f"{RED}[!] Error: Invalid selection or name.{RESET}\n")
+                                reprint_proposal = False
+                                continue
+                                
+                            deleted = engine.memory.delete_pinned_session(target_name)
+                            if deleted:
+                                print(f"{GREEN}[+] Deleted pinned session '{target_name}' successfully.{RESET}\n")
+                            else:
+                                print(f"{RED}[!] Error deleting session.{RESET}\n")
+                    except Exception as e:
+                        print(f"{RED}[!] Error deleting session: {e}{RESET}\n")
+                    reprint_proposal = False
                     continue
                 elif cmd == "/compact":
-                    print("\n[*] Distilling and compacting chat history to save tokens...")
+                    print(f"\n{MUSTARD}[*] Distilling and compacting chat history to save tokens...{RESET}")
                     history = engine.compact_planning_history(goal, history)
-                    print("[*] Regenerating proposal based on compacted history...")
+                    print(f"{MUSTARD}[*] Regenerating proposal based on compacted history...{RESET}")
                     proposal = engine.generate_planning_proposal(goal, history)
                     history.append({"role": "assistant", "content": proposal})
-                    print(f"[+] Chat history successfully compacted! New history contains {len(history)} items.")
+                    print(f"{GREEN}[+] Chat history successfully compacted! New history contains {len(history)} items.{RESET}")
                     continue
                 elif cmd == "/goal":
                     if not arg:
-                        print("[!] Error: Please specify a new goal after /goal.")
+                        print(f"{RED}[!] Error: Please specify a new goal after /goal.{RESET}\n")
+                        reprint_proposal = False
                         continue
-                    print(f"\n[*] Pivoting goal to: {arg}")
+                    print(f"\n{MUSTARD}[*] Pivoting goal to: {arg}{RESET}")
                     goal = arg
                     history = []
-                    print("[*] Generating new proposal...")
+                    print(f"{MUSTARD}[*] Generating new proposal...{RESET}")
                     proposal = engine.generate_planning_proposal(goal, history)
                     history.append({"role": "assistant", "content": proposal})
                     continue
                 elif cmd == "/schedule":
                     if not arg:
-                        print("[!] Error: Please specify a cron expression after /schedule.")
+                        print(f"{RED}[!] Error: Please specify a cron expression after /schedule.{RESET}\n")
+                        reprint_proposal = False
                         continue
                     cron_expr = arg.strip('"').strip("'")
                     scheduled_cron = cron_expr
-                    print(f"[+] Goal set to run on schedule: '{cron_expr}' (will be written to jobs.yaml on approval).")
+                    print(f"{GREEN}[+] Goal set to run on schedule: '{cron_expr}' (will be written to jobs.yaml on approval).{RESET}\n")
+                    reprint_proposal = False
                     continue
                 elif cmd == "/btw":
                     if not arg:
-                        print("[!] Error: Please specify a question after /btw.")
+                        print(f"{RED}[!] Error: Please specify a question after /btw.{RESET}\n")
+                        reprint_proposal = False
                         continue
-                    print(f"\n[*] Running secondary Q/A thread for: '{arg}'...")
+                    print(f"\n{MUSTARD}[*] Running secondary Q/A thread for: '{arg}'...{RESET}")
                     answer = engine.answer_planning_qa(arg)
                     print("\n" + "-" * 60)
-                    print(f"[BTW Q&A Answer]\n{answer}")
+                    print(f"{WHITE}[BTW Q&A Answer]\n{answer}{RESET}")
                     print("-" * 60 + "\n")
+                    reprint_proposal = False
+                    continue
+                elif cmd in ["/clear", "/cls"]:
+                    import os
+                    os.system("cls" if os.name == "nt" else "clear")
+                    print(f"\n{MUSTARD}=== Agent-X1 — Active Plan ==={RESET}")
+                    print(f"\n{MUSTARD}{'=' * 60}{RESET}")
+                    print(f"{WHITE}{proposal}{RESET}")
+                    print(f"{MUSTARD}{'=' * 60}{RESET}\n")
+                    reprint_proposal = False
+                    continue
+                elif cmd in ["/status", "/info"]:
+                    import datetime
+                    cfg = engine.router.config if hasattr(engine, "router") else {}
+                    active_provider = "unknown"
+                    active_model = "unknown"
+                    for provider_name in ["openrouter", "openai", "gemini", "anthropic", "ollama"]:
+                        provider_cfg = cfg.get(provider_name, {})
+                        if provider_cfg.get("enabled"):
+                            active_provider = provider_name
+                            preset = provider_cfg.get("preset")
+                            model = provider_cfg.get("model", "unknown")
+                            active_model = f"@preset/{preset}" if preset else model
+                            break
+                    turn = len([m for m in history if m.get("role") == "user"])
+                    sched_display = scheduled_cron if scheduled_cron else "none"
+                    pin_count = len(engine.memory.get_pinned_sessions()) if hasattr(engine, "memory") else "?"
+                    ts_now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    print(f"\n{MUSTARD}{'─' * 46}{RESET}")
+                    print(f"{MUSTARD}  Agent-X1 Session Status  [{ts_now}]{RESET}")
+                    print(f"{MUSTARD}{'─' * 46}{RESET}")
+                    print(f"  {CYAN}Goal          :{RESET} {goal}")
+                    print(f"  {CYAN}Provider      :{RESET} {active_provider}")
+                    print(f"  {CYAN}Model         :{RESET} {active_model}")
+                    print(f"  {CYAN}Turn          :{RESET} {turn}")
+                    print(f"  {CYAN}Schedule      :{RESET} {sched_display}")
+                    print(f"  {CYAN}Pinned saved  :{RESET} {pin_count}")
+                    print(f"{MUSTARD}{'─' * 46}{RESET}\n")
+                    reprint_proposal = False
+                    continue
+                elif cmd == "/export":
+                    import os, datetime
+                    filename = arg.strip() if arg else "proposal.md"
+                    if not filename.endswith(".md"):
+                        filename += ".md"
+                    try:
+                        os.makedirs("tmp", exist_ok=True)
+                        export_path = os.path.join("tmp", filename)
+                        ts = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                        with open(export_path, "w", encoding="utf-8") as f:
+                            f.write(f"# Agent-X1 Plan Export\n\n")
+                            f.write(f"**Goal:** {goal}  \n")
+                            f.write(f"**Exported:** {ts}  \n\n")
+                            f.write("---\n\n")
+                            f.write(proposal)
+                            f.write("\n")
+                        print(f"{GREEN}[+] Plan exported to '{export_path}' successfully.{RESET}\n")
+                    except Exception as e:
+                        print(f"{RED}[!] Error exporting plan: {e}{RESET}\n")
+                    reprint_proposal = False
                     continue
                 else:
-                    print(f"[!] Unknown slash command: {cmd}")
+                    print(f"{RED}[!] Unknown slash command: {cmd}  (type /help to see all commands){RESET}\n")
+                    reprint_proposal = False
                     continue
                     
             if user_input.lower() == "approved for build":
-                print("\n[+] Plan approved!")
+                print(f"\n{GREEN}[+] Plan approved!{RESET}")
                 if scheduled_cron:
                     correlation_id = engine.generate_correlation_id()
                     self.save_scheduled_job(goal, scheduled_cron, correlation_id)
                     return "scheduled"
                 return proposal
             elif user_input.lower() in ["abort", "no", "n"]:
-                print("\n[!] Execution aborted.")
+                print(f"\n{RED}[!] Execution aborted.{RESET}")
                 return ""
             
             # Check if user input contains important preferences to save to memory
             engine.learn_user_fact_if_needed(user_input)
             
             # User provided feedback
-            print("\n[*] Refining plan based on feedback...")
+            print(f"\n{MUSTARD}[*] Refining plan based on feedback...{RESET}")
             history.append({"role": "user", "content": user_input})
             proposal = engine.generate_planning_proposal(goal, history)
             history.append({"role": "assistant", "content": proposal})
 
-    def run_goal(self, goal: str, auto_approve: bool = True, dry_run: bool = False, interactive: bool = False) -> str:
+    def run_goal(self, goal: str, auto_approve: bool = True, dry_run: bool = False, interactive: bool = False, resume_session: Optional[str] = None) -> str:
         """Initializes dependencies and runs the orchestrator execution loop for a goal."""
         print(f"[*] Initializing Agent-X1 Harness with config: {self.config_path}")
         
@@ -276,7 +521,7 @@ class CliGateway:
         print(f"[*] Generated correlation ID: {correlation_id}")
         
         if interactive:
-            finalized_plan = self.interactive_planning_loop(goal, engine)
+            finalized_plan = self.interactive_planning_loop(goal, engine, resume_session=resume_session)
             if not finalized_plan:
                 return "aborted"
             if finalized_plan == "scheduled":
@@ -334,6 +579,7 @@ class CliGateway:
         return status
 
 def main():
+    setup_readline()
     parser = argparse.ArgumentParser(description="Agent-X1 CLI Gateway")
     parser.add_argument("--goal", type=str, help="The goal for Agent-X1 to achieve")
     parser.add_argument("--config", type=str, default="config.yaml", help="Path to config.yaml file")
@@ -346,11 +592,19 @@ def main():
     
     interactive = args.interactive or args.chat
     goal = args.goal
+    resume_session = None
+    
+    gateway = CliGateway(config_path=args.config)
     
     if not goal:
         if interactive:
             try:
-                goal = input("Please enter your goal: ").strip()
+                NEON_BLUE = "\033[1;38;5;39m"
+                RESET = "\033[0m"
+                try:
+                    goal = input(f"{NEON_BLUE}Please enter your goal (type /resume to restore a pinned session): ").strip()
+                finally:
+                    print(RESET, end="", flush=True)
             except KeyboardInterrupt:
                 print("\n[!] Exiting.")
                 sys.exit(0)
@@ -360,8 +614,60 @@ def main():
         else:
             parser.error("the following arguments are required: --goal (or run interactively with --interactive or --chat)")
             
-    gateway = CliGateway(config_path=args.config)
-    status = gateway.run_goal(goal, auto_approve=args.auto_approve, dry_run=args.dry_run, interactive=interactive)
+    # Handle direct /exit or /resume from startup prompt
+    if goal.lower() == "/exit":
+        print("\n[!] Exiting.")
+        sys.exit(0)
+    elif goal.lower() == "/resume":
+        try:
+            router = InferenceRouter(config_path=gateway.config_path)
+            db_path = router.config.get("storage", {}).get("db_path", "tmp/memory.db")
+            memory = MemoryManager(db_path=db_path, router=router)
+            pinned = memory.get_pinned_sessions()
+            if not pinned:
+                print("\033[91m[!] No pinned sessions found.\033[0m")
+                sys.exit(1)
+            
+            print(f"\n\033[38;5;178mAvailable pinned sessions:\033[0m")
+            for idx, session in enumerate(pinned, 1):
+                name = session.get("name")
+                session_goal = session.get("goal")
+                ts = session.get("timestamp")
+                import datetime
+                dt_str = datetime.datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M:%S")
+                print(f"  {idx}. {name} - Goal: {session_goal} (Pinned: {dt_str})")
+            
+            choice_input = input("\nChoose a session number or name to resume (or type '/exit' to cancel): ").strip()
+            if not choice_input or choice_input.lower() == "/exit":
+                print("[*] Exiting.")
+                sys.exit(0)
+                
+            target_session = None
+            try:
+                choice_idx = int(choice_input) - 1
+                if 0 <= choice_idx < len(pinned):
+                    target_session = pinned[choice_idx]
+            except ValueError:
+                pass
+                
+            if not target_session:
+                for session in pinned:
+                    if session.get("name") == choice_input:
+                        target_session = session
+                        break
+                        
+            if not target_session:
+                print("\033[91m[!] Error: Invalid selection or name.\033[0m")
+                sys.exit(1)
+                
+            resume_session = target_session.get("name")
+            goal = target_session.get("goal")
+            
+        except Exception as e:
+            print(f"\033[91m[!] Error listing pinned sessions: {e}\033[0m")
+            sys.exit(1)
+            
+    status = gateway.run_goal(goal, auto_approve=args.auto_approve, dry_run=args.dry_run, interactive=interactive, resume_session=resume_session)
     
     sys.exit(0 if status == "completed" else 1)
 
