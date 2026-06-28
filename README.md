@@ -76,7 +76,63 @@ python3 -m src.gateways.gateway [flags]
 
 ---
 
+## Running with Docker
+
+Three Docker services are available — the REST API, the background scheduler, and an interactive CLI session.
+
+### First-time setup
+
+```bash
+# 1. Copy the env template and fill in your API keys
+cp .env.template .env
+
+# 2. Build the image
+docker compose build
+```
+
+### Start services
+
+```bash
+# Start the REST API gateway + background scheduler (detached)
+docker compose up -d agent-api agent-scheduler
+
+# View live logs
+docker compose logs -f
+
+# Check running containers
+docker compose ps
+```
+
+### Interactive CLI session (`--chat` mode)
+
+```bash
+# Drop into a live chat session inside the container
+docker compose run --rm agent-cli
+
+# Tip: the container shares ./tmp and ./logs with your host,
+# so pinned sessions and audit logs persist between runs.
+```
+
+### Stop & clean up
+
+```bash
+# Stop all running services
+docker compose down
+
+# Stop and remove volumes (clears tmp/ and logs/ mounts)
+docker compose down -v
+```
+
+### Security note
+
+> **Never commit `.env`** — it is excluded by `.gitignore` and `.dockerignore`.  
+> Secrets are injected at runtime via `env_file: .env` in `docker-compose.yml`.  
+> A pre-commit git hook is installed locally to block any accidental key commits.
+
+---
+
 ## Interactive Planning Slash Commands
+
 
 When in `--chat` or `--interactive` mode, the REPL supports the following slash commands. Type `/help` at any time to print the full list.
 
