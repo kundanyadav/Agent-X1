@@ -170,7 +170,7 @@ inference:
         mock_open.return_value = mock_file
         
         router = InferenceRouter(config_path=str(self.mock_config_path))
-        router.config["inference"]["copilot"] = {"enterprise_host": "company.ghe.com"}
+        router.config = {"inference": {"copilot": {"enterprise_host": "company.ghe.com"}}}
         
         with patch.object(pathlib.Path, "suffix", ".json"):
             token = router._get_copilot_oauth_token()
@@ -227,6 +227,29 @@ inference:
                     "Accept": "application/json"
                 }
             )
+
+    @patch("requests.post")
+    def test_chat_completions_ghe_cloud(self, mock_post):
+        """Verifies GHE Cloud completions endpoint resolution and payload routing."""
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {
+            "choices": [{"message": {"content": "Hello from custom GHE!"}}]
+        }
+        mock_post.return_value = mock_resp
+        
+        router = InferenceRouter(config_path=str(self.mock_config_path))
+        router.config["inference"]["active_provider"] = "copilot"
+        router.config["inference"]["copilot"] = {"enterprise_host": "company.ghe.com"}
+        
+        with patch.object(router, "_refresh_copilot_session_token", return_value="mock_ghe_jwt"):
+            res = router.chat_completions(messages=[{"role": "user", "content": "hello"}])
+            self.assertEqual(res["choices"][0]["message"]["content"], "Hello from custom GHE!")
+            
+            mock_post.assert_called_once()
+            args, kwargs = mock_post.call_args
+            self.assertEqual(args[0], "https://copilot-api.company.ghe.com/chat/completions")
+            self.assertEqual(kwargs["headers"]["Authorization"], "Bearer mock_ghe_jwt")
 
 if __name__ == "__main__":
     unittest.main()

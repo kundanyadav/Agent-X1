@@ -179,7 +179,16 @@ class InferenceRouter:
             }
             # Allow API URL override for custom GHE proxy settings if necessary
             copilot_cfg = inf_config.get("copilot", {})
-            url = os.environ.get("GITHUB_COPILOT_API_URL") or copilot_cfg.get("api_url") or "https://api.githubcopilot.com/chat/completions"
+            ghe_host = os.environ.get("GITHUB_ENTERPRISE_HOST") or copilot_cfg.get("enterprise_host") or "github.com"
+            if os.environ.get("GITHUB_COPILOT_API_URL") or copilot_cfg.get("api_url"):
+                url = os.environ.get("GITHUB_COPILOT_API_URL") or copilot_cfg.get("api_url")
+            elif ghe_host.endswith(".ghe.com"):
+                if ghe_host.startswith("copilot-api."):
+                    url = f"https://{ghe_host}/chat/completions"
+                else:
+                    url = f"https://copilot-api.{ghe_host}/chat/completions"
+            else:
+                url = "https://api.githubcopilot.com/chat/completions"
             payload = {
                 "model": model,
                 "messages": messages,
