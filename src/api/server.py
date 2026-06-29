@@ -24,7 +24,14 @@ engine: Optional[OrchestrationEngine] = None
 
 # Initialize resources
 def init_resources(config_path: str = "config.yaml"):
-    global router, tools, memory, engine
+    global router, tools, memory, engine, execution_queue, active_sessions
+    
+    # Reset queue and active sessions between test runs
+    with execution_queue.mutex:
+        execution_queue.queue.clear()
+        execution_queue.unfinished_tasks = 0
+    active_sessions.clear()
+    
     router = InferenceRouter(config_path=config_path)
     # Extract storage paths from config
     storage_cfg = router.config.get("storage", {})

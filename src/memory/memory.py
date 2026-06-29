@@ -2,6 +2,7 @@ import os
 import json
 import sqlite3
 import time
+from contextlib import contextmanager
 import numpy as np
 from typing import List, Dict, Any, Optional
 
@@ -14,9 +15,17 @@ class MemoryManager:
         os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
         self._init_db()
 
+    @contextmanager
+    def _conn(self):
+        conn = sqlite3.connect(self.db_path, timeout=30.0)
+        try:
+            yield conn
+        finally:
+            conn.close()
+
     def _init_db(self):
         """Initializes SQLite databases and tables with indexes for agent partitioning."""
-        with sqlite3.connect(self.db_path, timeout=30.0) as conn:
+        with self._conn() as conn:
             cursor = conn.cursor()
             
             # Episodic Sessions Table
@@ -117,7 +126,7 @@ class MemoryManager:
     # --- Write APIs ---
 
     def start_session(self, session_id: str, goal: str):
-        with sqlite3.connect(self.db_path, timeout=30.0) as conn:
+        with self._conn() as conn:
             cursor = conn.cursor()
             cursor.execute(
                 "INSERT OR REPLACE INTO sessions (session_id, goal, start_time, status) VALUES (?, ?, ?, ?)",
@@ -126,7 +135,7 @@ class MemoryManager:
             conn.commit()
 
     def end_session(self, session_id: str, status: str):
-        with sqlite3.connect(self.db_path, timeout=30.0) as conn:
+        with self._conn() as conn:
             cursor = conn.cursor()
             cursor.execute(
                 "UPDATE sessions SET end_time = ?, status = ? WHERE session_id = ?",
@@ -140,7 +149,7 @@ class MemoryManager:
         if agent_owner not in valid_owners:
             raise ValueError(f"Invalid agent owner: '{agent_owner}'. Must be one of: {valid_owners}")
             
-        with sqlite3.connect(self.db_path, timeout=30.0) as conn:
+        with self._conn() as conn:
             cursor = conn.cursor()
             cursor.execute("""
                 INSERT INTO actions (session_id, agent_owner, timestamp, tool_called, arguments, stdout, stderr, status)
@@ -151,7 +160,7 @@ class MemoryManager:
             return action_id
 
     def write_feedback(self, action_id: int, agent_owner: str, score: int, notes: str):
-        with sqlite3.connect(self.db_path, timeout=30.0) as conn:
+        with self._conn() as conn:
             cursor = conn.cursor()
             cursor.execute("""
                 INSERT INTO feedback (action_id, agent_owner, score, notes)
@@ -168,7 +177,7 @@ class MemoryManager:
         vector = self._get_embedding(f"{category} {issue} {solution}")
         vector_bytes = vector.tobytes()
         
-        with sqlite3.connect(self.db_path, timeout=30.0) as conn:
+        with self._conn() as conn:
             cursor = conn.cursor()
             cursor.execute("""
                 INSERT INTO semantic_memory (agent_owner, category, issue, solution, vector, timestamp)
@@ -188,7 +197,7 @@ class MemoryManager:
             query += f" AND agent_owner IN ({placeholders})"
             params.extend(target_owners)
             
-        with sqlite3.connect(self.db_path, timeout=30.0) as conn:
+        with self._conn() as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
             cursor.execute(query, params)
@@ -213,7 +222,7 @@ class MemoryManager:
             sql += " WHERE agent_owner = ?"
             params.append(caller_agent)
             
-        with sqlite3.connect(self.db_path, timeout=30.0) as conn:
+        with self._conn() as conn:
             cursor = conn.cursor()
             cursor.execute(sql, params)
             rows = cursor.fetchall()
@@ -244,7 +253,7 @@ class MemoryManager:
 
     def pin_session(self, name: str, goal: str, history: List[Dict[str, str]], scheduled_cron: Optional[str] = None):
         """Saves a planning session context into the pinned_sessions table."""
-        with sqlite3.connect(self.db_path, timeout=30.0) as conn:
+        with self._conn() as conn:
             cursor = conn.cursor()
             cursor.execute(
                 "INSERT OR REPLACE INTO pinned_sessions (name, goal, history, scheduled_cron, timestamp) VALUES (?, ?, ?, ?, ?)",
@@ -254,7 +263,7 @@ class MemoryManager:
 
     def get_pinned_sessions(self) -> List[Dict[str, Any]]:
         """Retrieves all pinned sessions ordered by timestamp."""
-        with sqlite3.connect(self.db_path, timeout=30.0) as conn:
+        with self._conn() as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
             try:
@@ -266,7 +275,7 @@ class MemoryManager:
 
     def get_pinned_session(self, name: str) -> Optional[Dict[str, Any]]:
         """Retrieves a single pinned session context by name."""
-        with sqlite3.connect(self.db_path, timeout=30.0) as conn:
+        with self._conn() as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
             try:
@@ -282,7 +291,7 @@ class MemoryManager:
 
     def delete_pinned_session(self, name: str) -> bool:
         """Deletes a pinned session by name. Returns True if deleted, False otherwise."""
-        with sqlite3.connect(self.db_path, timeout=30.0) as conn:
+        with self._conn() as conn:
             cursor = conn.cursor()
             try:
                 cursor.execute("DELETE FROM pinned_sessions WHERE name = ?", (name,))

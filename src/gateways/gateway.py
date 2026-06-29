@@ -76,7 +76,8 @@ def print_startup_banner(config_path: str = "config.yaml"):
 
     try:
         _version_file = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "VERSION")
-        _version = open(_version_file).read().strip()
+        with open(_version_file, "r", encoding="utf-8") as f:
+            _version = f.read().strip()
     except Exception:
         _version = "dev"
     tagline   = f"Autonomous Developer Harness  ·  v{_version}"

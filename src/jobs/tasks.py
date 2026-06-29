@@ -190,6 +190,8 @@ def consolidate_memories(config_path: str = "config.yaml"):
         print("[*] No database found for memory consolidation.")
         return
 
+    sessions = []
+    conn = None
     try:
         with sqlite3.connect(db_path, timeout=30.0) as conn:
             conn.row_factory = sqlite3.Row
@@ -199,6 +201,9 @@ def consolidate_memories(config_path: str = "config.yaml"):
     except Exception as e:
         print(f"[!] Database access error: {e}")
         return
+    finally:
+        if conn:
+            conn.close()
 
     print(f"[*] Found {len(sessions)} sessions to consolidate.")
     consolidated_count = 0
@@ -209,6 +214,7 @@ def consolidate_memories(config_path: str = "config.yaml"):
         status = s["status"]
         
         # Avoid duplicate consolidation for same session
+        conn = None
         try:
             with sqlite3.connect(db_path, timeout=30.0) as conn:
                 cursor = conn.cursor()
@@ -218,6 +224,9 @@ def consolidate_memories(config_path: str = "config.yaml"):
                     continue
         except Exception:
             pass
+        finally:
+            if conn:
+                conn.close()
 
         history = engine.memory.get_session_history(session_id)
         if not history:
