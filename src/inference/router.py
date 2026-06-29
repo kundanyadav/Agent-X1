@@ -42,6 +42,11 @@ class InferenceRouter:
         """Locates and extracts the GitHub oauth token (ghu_ token) from local host files."""
         home = pathlib.Path.home()
         
+        # Determine GHE host if configured
+        inf_cfg = self.config.get("inference", {})
+        copilot_cfg = inf_cfg.get("copilot", {})
+        ghe_host = os.environ.get("GITHUB_ENTERPRISE_HOST") or copilot_cfg.get("enterprise_host") or "github.com"
+        
         # Check standard config file paths based on host OS
         paths = []
         if sys.platform.startswith("win"):
@@ -63,8 +68,7 @@ class InferenceRouter:
                 if path.suffix == ".json":
                     with open(path, "r") as f:
                         data = json.load(f)
-                    # Extract oauth_token under github.com
-                    github_config = data.get("github.com", {})
+                    github_config = data.get(ghe_host) or data.get("github.com", {})
                     token = github_config.get("oauth_token")
                     if token:
                         return token
@@ -72,7 +76,7 @@ class InferenceRouter:
                     with open(path, "r") as f:
                         import yaml
                         data = yaml.safe_load(f)
-                    github_config = data.get("github.com", {})
+                    github_config = data.get(ghe_host) or data.get("github.com", {})
                     token = github_config.get("oauth_token")
                     if token:
                         return token
@@ -86,7 +90,7 @@ class InferenceRouter:
             return token
             
         raise ValueError(
-            "GitHub Copilot OAuth token not found in config files or GITHUB_COPILOT_OAUTH_TOKEN environment variable. "
+            f"GitHub Copilot OAuth token not found for host '{ghe_host}' in config files or GITHUB_COPILOT_OAUTH_TOKEN environment variable. "
             "Please run 'gh auth login' or ensure you are signed into GitHub Copilot in VS Code."
         )
 
@@ -104,12 +108,27 @@ class InferenceRouter:
             "Accept": "application/json"
         }
         
-        url = "https://api.github.com/copilot_internal/v2/token"
+        # Determine GHE host if configured
+        inf_cfg = self.config.get("inference", {})
+        copilot_cfg = inf_cfg.get("copilot", {})
+        ghe_host = os.environ.get("GITHUB_ENTERPRISE_HOST") or copilot_cfg.get("enterprise_host") or "github.com"
+        
+        if ghe_host == "github.com":
+            url = "https://api.github.com/copilot_internal/v2/token"
+        elif ghe_host.endswith(".ghe.com"):
+            if ghe_host.startswith("api."):
+                url = f"https://{ghe_host}/copilot_internal/v2/token"
+            else:
+                url = f"https://api.{ghe_host}/copilot_internal/v2/token"
+        else:
+            # Standard GHES endpoint
+            url = f"https://{ghe_host}/api/v3/copilot_internal/v2/token"
+            
         response = requests.get(url, headers=headers)
         
         if response.status_code != 200:
             raise RuntimeError(
-                f"Failed to authenticate with GitHub Copilot token exchange endpoint: "
+                f"Failed to authenticate with GitHub Copilot token exchange endpoint ({url}): "
                 f"HTTP {response.status_code} - {response.text}"
             )
             
@@ -158,7 +177,9 @@ class InferenceRouter:
                 "editor-plugin-version": "copilot/1.250.0",
                 "user-agent": "GithubCopilot/1.250.0"
             }
-            url = "https://api.githubcopilot.com/chat/completions"
+            # Allow API URL override for custom GHE proxy settings if necessary
+            copilot_cfg = inf_config.get("copilot", {})
+            url = os.environ.get("GITHUB_COPILOT_API_URL") or copilot_cfg.get("api_url") or "https://api.githubcopilot.com/chat/completions"
             payload = {
                 "model": model,
                 "messages": messages,

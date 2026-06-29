@@ -151,5 +151,82 @@ inference:
         self.assertEqual(kwargs["headers"]["X-Title"], "Agent-X1")
         self.assertEqual(kwargs["json"]["model"], "@preset/my-preset-slug")
 
+    @patch("pathlib.Path.exists")
+    @patch("builtins.open")
+    def test_get_copilot_oauth_token_ghe(self, mock_open, mock_exists):
+        """Verifies oauth token extraction for GHE from mock hosts.json file using enterprise_host."""
+        mock_exists.return_value = True
+        
+        mock_hosts_json = json.dumps({
+            "company.ghe.com": {
+                "user": "ghe-user",
+                "oauth_token": "ghu_ghe_mock_token_12345"
+            }
+        })
+        
+        mock_file = MagicMock()
+        mock_file.__enter__.return_value.read.return_value = mock_hosts_json
+        mock_file.__enter__.return_value.suffix = ".json"
+        mock_open.return_value = mock_file
+        
+        router = InferenceRouter(config_path=str(self.mock_config_path))
+        router.config["inference"]["copilot"] = {"enterprise_host": "company.ghe.com"}
+        
+        with patch.object(pathlib.Path, "suffix", ".json"):
+            token = router._get_copilot_oauth_token()
+            self.assertEqual(token, "ghu_ghe_mock_token_12345")
+
+    @patch("requests.get")
+    def test_refresh_copilot_session_token_ghe_cloud(self, mock_get):
+        """Verifies GHE Cloud endpoint resolution and token exchange request."""
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {
+            "token": "ghu_ghe_cloud_jwt",
+            "expires_at": 1813953600
+        }
+        mock_get.return_value = mock_resp
+        
+        router = InferenceRouter(config_path=str(self.mock_config_path))
+        router.config["inference"]["copilot"] = {"enterprise_host": "company.ghe.com"}
+        
+        with patch.object(router, "_get_copilot_oauth_token", return_value="ghu_ghe_oauth"):
+            session_token = router._refresh_copilot_session_token()
+            self.assertEqual(session_token, "ghu_ghe_cloud_jwt")
+            mock_get.assert_called_once_with(
+                "https://api.company.ghe.com/copilot_internal/v2/token",
+                headers={
+                    "Authorization": "Bearer ghu_ghe_oauth",
+                    "User-Agent": "GithubCopilot/1.250.0",
+                    "Accept": "application/json"
+                }
+            )
+
+    @patch("requests.get")
+    def test_refresh_copilot_session_token_ghes_onprem(self, mock_get):
+        """Verifies GHES on-premises endpoint resolution and token exchange request."""
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {
+            "token": "ghu_ghes_jwt",
+            "expires_at": 1813953600
+        }
+        mock_get.return_value = mock_resp
+        
+        router = InferenceRouter(config_path=str(self.mock_config_path))
+        router.config["inference"]["copilot"] = {"enterprise_host": "github.company.com"}
+        
+        with patch.object(router, "_get_copilot_oauth_token", return_value="ghu_ghes_oauth"):
+            session_token = router._refresh_copilot_session_token()
+            self.assertEqual(session_token, "ghu_ghes_jwt")
+            mock_get.assert_called_once_with(
+                "https://github.company.com/api/v3/copilot_internal/v2/token",
+                headers={
+                    "Authorization": "Bearer ghu_ghes_oauth",
+                    "User-Agent": "GithubCopilot/1.250.0",
+                    "Accept": "application/json"
+                }
+            )
+
 if __name__ == "__main__":
     unittest.main()
